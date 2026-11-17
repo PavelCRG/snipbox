@@ -10,6 +10,9 @@ import (
 )
 
 func (m Model) View() string {
+	if m.Width < 72 || m.Height < 16 {
+		return Base.Render("SNIPBOX\n\nResize the terminal to at least 72 columns by 16 rows.")
+	}
 	hits := m.matches()
 	var b strings.Builder
 	b.WriteString(Title.Render("⚡ SNIPBOX") + "    ")
@@ -67,16 +70,13 @@ func (m Model) View() string {
 			}
 		}
 	}
-	width := m.Width * 42 / 100
-	if width < 24 {
-		width = 36
-	}
-	rightWidth := max(24, m.Width-width-6)
-	leftPanel := Panel.Width(width).Render(SectionTitle.Render("Commands") + "\n" + left.String())
-	rightPanel := Panel.Width(rightWidth).Render(SectionTitle.Render("Command Details") + "\n" + right.String())
-	panelHeight := max(lipgloss.Height(leftPanel), lipgloss.Height(rightPanel))
-	gap := strings.TrimSuffix(strings.Repeat(" \n", panelHeight), "\n")
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, gap, rightPanel))
+	// Width includes each panel's border and padding; keep the complete row inside the terminal.
+	leftWidth := (m.Width - 2) * 42 / 100
+	rightWidth := m.Width - leftWidth - 2
+	contentHeight := max(1, m.Height-9)
+	leftPanel := Panel.Width(max(1, leftWidth-4)).Height(contentHeight).MaxHeight(contentHeight).Render(SectionTitle.Render("Commands") + "\n" + left.String())
+	rightPanel := Panel.Width(max(1, rightWidth-4)).Height(contentHeight).MaxHeight(contentHeight).Render(SectionTitle.Render("Command Details") + "\n" + right.String())
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, "  ", rightPanel))
 	b.WriteString("\n\n" + Muted.Render("[Enter] Copy  [Ctrl+R] Run  [Tab] Tabs  [Ctrl+A] New  [Ctrl+E] Edit  [Ctrl+H] History  [?] Help  [Esc] Quit"))
 	if m.Status != "" {
 		style := Success
@@ -88,7 +88,7 @@ func (m Model) View() string {
 	if m.Modal != "" {
 		return Base.Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, Panel.BorderForeground(purple).Render(m.modalView())))
 	}
-	return Base.Render(b.String())
+	return Base.Width(m.Width).MaxWidth(m.Width).Height(m.Height).MaxHeight(m.Height).Render(b.String())
 }
 
 func (m Model) modalView() string {

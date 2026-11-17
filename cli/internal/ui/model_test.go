@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/snipbox/cli/internal/storage"
 )
 
@@ -30,6 +31,30 @@ func TestCommandPanelsRenderSideBySide(t *testing.T) {
 		}
 	}
 	t.Fatal("Commands and Command Details were not rendered on the same row")
+}
+
+func TestViewFitsTerminalBounds(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {96, 30}, {80, 24}} {
+		model := New([]storage.Command{{Name: "Git status", Category: "Git", Description: "Inspect the working tree", Command: "git status --short --branch"}}, "")
+		model.Width, model.Height = size[0], size[1]
+		view := model.View()
+		if got := lipgloss.Height(view); got > size[1] {
+			t.Errorf("View() height = %d at %dx%d", got, size[0], size[1])
+		}
+		for lineNo, line := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(line); got > size[0] {
+				t.Errorf("View() line %d width = %d at %dx%d", lineNo+1, got, size[0], size[1])
+			}
+		}
+	}
+}
+
+func TestViewRequestsResizeForVerySmallTerminal(t *testing.T) {
+	model := New(nil, "")
+	model.Width, model.Height = 60, 20
+	if view := model.View(); !strings.Contains(view, "Resize the terminal") {
+		t.Fatalf("small terminal view should explain how to recover: %q", view)
+	}
 }
 
 func TestCleanOutputRemovesTerminalControlSequences(t *testing.T) {
