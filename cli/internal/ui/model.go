@@ -42,6 +42,10 @@ type runMsg struct {
 
 type clearStatusMsg string
 
+type splashTickMsg struct{}
+
+const splashFinalFrame = 40
+
 type treeRow struct {
 	Kind        string
 	Category    string
@@ -51,30 +55,34 @@ type treeRow struct {
 }
 
 type keyMap struct {
-	Up, Down, PageUp, PageDown, Copy, Run, NextTab, New, Edit, History, Help, About, Quit key.Binding
+	Up, Down, PageUp, PageDown, Copy, Run, NextTab, PreviousTab, New, Edit, Favorite, Delete, History, Help, About, Welcome, Quit key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Copy, k.Run, k.NextTab, k.New, k.Edit, k.History, k.About, k.Help, k.Quit}
+	return []key.Binding{k.Copy, k.Run, k.NextTab, k.PreviousTab, k.New, k.Edit, k.Favorite, k.Delete, k.History, k.About, k.Help, k.Welcome, k.Quit}
 }
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Copy, k.Run, k.NextTab}, {k.New, k.Edit, k.History, k.Help, k.About, k.Quit}}
+	return [][]key.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Copy, k.Run, k.NextTab, k.PreviousTab}, {k.New, k.Edit, k.Favorite, k.Delete, k.History, k.Help, k.About, k.Welcome, k.Quit}}
 }
 
 var keys = keyMap{
-	Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move")),
-	Down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move")),
-	PageUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "scroll details")),
-	PageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "scroll details")),
-	Copy:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "copy")),
-	Run:      key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run")),
-	NextTab:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tabs")),
-	New:      key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "new")),
-	Edit:     key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit")),
-	History:  key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "history")),
-	Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-	About:    key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "about")),
-	Quit:     key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "quit")),
+	Up:          key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move")),
+	Down:        key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move")),
+	PageUp:      key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "scroll details")),
+	PageDown:    key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "scroll details")),
+	Copy:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "copy")),
+	Run:         key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run")),
+	NextTab:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tabs")),
+	PreviousTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
+	New:         key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "new")),
+	Edit:        key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit")),
+	Favorite:    key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "favorite")),
+	Delete:      key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "delete")),
+	History:     key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "history")),
+	Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	About:       key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "about")),
+	Welcome:     key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "welcome")),
+	Quit:        key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "quit")),
 }
 
 type cappedBuffer struct {
@@ -91,6 +99,7 @@ type Model struct {
 	Tab             string
 	Mode            string
 	WelcomeSelected int
+	SplashFrame     int
 	Status          string
 	Modal           string
 	Width           int
@@ -112,6 +121,7 @@ type Model struct {
 	varField            int
 	pending             string
 	variableAction      string
+	pendingDelete       int
 	categoryExpanded    map[string]bool
 	subcategoryExpanded map[string]bool
 }
@@ -125,7 +135,7 @@ func New(commands []storage.Command, query string) Model {
 	search.PromptStyle = Selected
 	search.TextStyle = Base
 	search.Cursor.Style = Selected
-	mode := "welcome"
+	mode := "splash"
 	tab := "All"
 	if query != "" {
 		mode = "tree"
@@ -136,13 +146,23 @@ func New(commands []storage.Command, query string) Model {
 	}
 	return Model{
 		Commands: commands, Query: query, Tab: tab, Mode: mode, editIndex: -1,
+		pendingDelete:    -1,
 		categoryExpanded: expanded, subcategoryExpanded: make(map[string]bool),
 		searchInput: search, formInput: textinput.New(), variableInput: textinput.New(),
 		detailsView: viewport.New(1, 1), historyView: viewport.New(1, 1), helpView: help.New(),
 	}
 }
 
-func (m Model) Init() tea.Cmd { return textinput.Blink }
+func (m Model) Init() tea.Cmd {
+	if m.Mode == "splash" {
+		return tea.Batch(textinput.Blink, nextSplashTick())
+	}
+	return textinput.Blink
+}
+
+func nextSplashTick() tea.Cmd {
+	return tea.Tick(30*time.Millisecond, func(time.Time) tea.Msg { return splashTickMsg{} })
+}
 
 func (m Model) matches() []searchHit {
 	result, err := bridge.Search(m.Commands, m.Query)
@@ -273,6 +293,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.Status = status
 		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearStatusMsg(status) })
+	case splashTickMsg:
+		if m.Mode != "splash" {
+			return m, nil
+		}
+		m.SplashFrame++
+		if m.SplashFrame >= splashFinalFrame {
+			m.Mode = "welcome"
+			return m, nil
+		}
+		return m, nextSplashTick()
 	case clearStatusMsg:
 		if string(v) == m.Status {
 			m.Status = ""
@@ -281,6 +311,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Modal != "" {
 			return m.updateModal(v)
 		}
+		if m.Mode == "splash" {
+			m.Mode = "welcome"
+			return m, nil
+		}
 		if m.Mode == "welcome" {
 			return m.updateWelcome(v)
 		}
@@ -288,7 +322,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateTree(v)
 		}
 		switch v.String() {
-		case "esc", "ctrl+c":
+		case "esc":
+			if m.Query != "" {
+				m.Query = ""
+				m.searchInput.SetValue("")
+				m.Selected = 0
+				m.syncDetails()
+				return m, nil
+			}
+			return m, tea.Quit
+		case "ctrl+c":
 			return m, tea.Quit
 		case "up", "k":
 			if m.Selected > 0 {
@@ -308,25 +351,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgdown":
 			m.detailsView, _ = m.detailsView.Update(v)
 			return m, nil
-		case "tab":
-			tabs := append([]string{"All"}, storage.Categories()...)
-			for i, tab := range tabs {
-				if tab == m.Tab {
-					m.Tab = tabs[(i+1)%len(tabs)]
-					break
-				}
-			}
-			m.Selected = 0
-			m.syncDetails()
+		case "tab", "shift+tab":
+			m.cycleTab(v.String() == "shift+tab")
 			return m, nil
 		case "w":
+			// Keep ordinary letters available to live search.
+		case "ctrl+w":
 			if m.Query == "" {
 				m.Mode = "welcome"
 				return m, nil
 			}
 		case "?":
-			m.Modal = "help"
-			return m, nil
+			if m.Query == "" {
+				m.Modal = "help"
+				return m, nil
+			}
 		case "ctrl+o":
 			m.Modal = "about"
 			return m, nil
@@ -359,6 +398,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formField, m.editIndex, m.Modal = 0, index, "form"
 				m.prepareFormInput()
 			}
+			return m, nil
+		case "ctrl+f":
+			return m, m.toggleFavorite()
+		case "ctrl+d":
+			m.beginDelete()
 			return m, nil
 		case "ctrl+h":
 			m.history = history.Recent()
@@ -434,16 +478,26 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	rows := m.treeRows()
 	if len(rows) == 0 {
 		m.Selected = 0
-		return m, nil
-	}
-	if m.Selected >= len(rows) {
+	} else if m.Selected >= len(rows) {
 		m.Selected = len(rows) - 1
 	}
-	row := rows[m.Selected]
+	var row treeRow
+	if len(rows) > 0 {
+		row = rows[m.Selected]
+	}
 	switch key.String() {
-	case "esc", "ctrl+c":
+	case "esc":
+		if m.Query != "" {
+			m.Query = ""
+			m.searchInput.SetValue("")
+			m.Selected = 0
+			m.syncDetails()
+			return m, nil
+		}
 		return m, tea.Quit
-	case "w":
+	case "ctrl+c":
+		return m, tea.Quit
+	case "ctrl+w":
 		if m.Query == "" {
 			m.Mode = "welcome"
 			return m, nil
@@ -497,10 +551,8 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgup", "pgdown":
 		m.detailsView, _ = m.detailsView.Update(key)
 		return m, nil
-	case "tab":
-		m.Tab = "All"
-		m.Selected = 0
-		m.syncDetails()
+	case "tab", "shift+tab":
+		m.cycleTab(key.String() == "shift+tab")
 		return m, nil
 	case "ctrl+r":
 		cmd := m.beginRun()
@@ -521,6 +573,11 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prepareFormInput()
 		}
 		return m, nil
+	case "ctrl+f":
+		return m, m.toggleFavorite()
+	case "ctrl+d":
+		m.beginDelete()
+		return m, nil
 	case "ctrl+h":
 		m.history = history.Recent()
 		if len(m.history) == 0 {
@@ -531,8 +588,10 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "?":
-		m.Modal = "help"
-		return m, nil
+		if m.Query == "" {
+			m.Modal = "help"
+			return m, nil
+		}
 	case "ctrl+o":
 		m.Modal = "about"
 		return m, nil
@@ -550,6 +609,72 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) setSuccess(value string) { m.Status = value }
 
+func (m *Model) cycleTab(previous bool) {
+	tabs := append([]string{"All"}, storage.Categories()...)
+	for i, tab := range tabs {
+		if tab == m.Tab {
+			step := 1
+			if previous {
+				step = len(tabs) - 1
+			}
+			m.Tab = tabs[(i+step)%len(tabs)]
+			break
+		}
+	}
+	m.Selected = 0
+	m.syncDetails()
+}
+
+func (m *Model) toggleFavorite() tea.Cmd {
+	index, _, ok := m.selectedCommand()
+	if !ok {
+		return nil
+	}
+	m.Commands[index].Favorite = !m.Commands[index].Favorite
+	if err := storage.Save(m.Commands); err != nil {
+		m.Commands[index].Favorite = !m.Commands[index].Favorite
+		m.Status = "Could not save favorite: " + err.Error()
+		return nil
+	}
+	if m.Commands[index].Favorite {
+		return m.successCmd("[OK] Added to favorites")
+	}
+	return m.successCmd("[OK] Removed from favorites")
+}
+
+func (m *Model) beginDelete() {
+	index, _, ok := m.selectedCommand()
+	if !ok {
+		return
+	}
+	m.pendingDelete = index
+	m.Modal = "confirm_delete"
+}
+
+func (m *Model) deletePending() tea.Cmd {
+	if m.pendingDelete < 0 || m.pendingDelete >= len(m.Commands) {
+		m.Modal = ""
+		m.pendingDelete = -1
+		return nil
+	}
+	commands := append([]storage.Command(nil), m.Commands[:m.pendingDelete]...)
+	commands = append(commands, m.Commands[m.pendingDelete+1:]...)
+	if err := storage.Save(commands); err != nil {
+		m.Status = "Could not delete command: " + err.Error()
+		m.Modal = ""
+		m.pendingDelete = -1
+		return nil
+	}
+	m.Commands = commands
+	m.Modal = ""
+	m.pendingDelete = -1
+	if m.Selected >= len(m.treeRows()) {
+		m.Selected = max(0, len(m.treeRows())-1)
+	}
+	m.syncDetails()
+	return m.successCmd("[OK] Command deleted")
+}
+
 func (m *Model) successCmd(value string) tea.Cmd {
 	m.setSuccess(value)
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearStatusMsg(value) })
@@ -561,14 +686,19 @@ func (m *Model) layout() {
 	formWidth := max(1, min(64, m.Width-24))
 	m.formInput.Width, m.variableInput.Width = formWidth, formWidth
 	_, _, _, rightWidth := panelWidths(m.Width)
-	m.detailsView.Width, m.detailsView.Height = rightWidth, max(1, m.Height-12)
+	m.helpView.Width = innerWidth
+	helpHeight := strings.Count(helpFooter(m.helpView, innerWidth), "\n") + 1
+	if m.Status != "" {
+		helpHeight++
+	}
+	bodyHeight := max(3, m.Height-4-helpHeight)
+	m.detailsView.Width, m.detailsView.Height = rightWidth, max(1, bodyHeight-3)
 	m.historyView.Width, m.historyView.Height = formWidth, max(1, m.Height-12)
-	m.helpView.Width = max(1, m.Width-4)
 }
 func (m *Model) syncDetails() {
 	_, _, _, width := panelWidths(m.Width)
 	m.detailsView.Width = width
-	m.detailsView.SetContent(wrapLines(m.detailsContent(), width))
+	m.detailsView.SetContent(wrapLines(m.detailsContent(), max(1, width-2)))
 }
 
 func (m *Model) syncHistory() {
@@ -686,6 +816,14 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "enter":
 			cmd := m.execute(m.pending)
 			return m, cmd
+		}
+	case "confirm_delete":
+		switch key.String() {
+		case "esc", "n":
+			m.Modal = ""
+			m.pendingDelete = -1
+		case "y", "enter":
+			return m, m.deletePending()
 		}
 	}
 	return m, nil
@@ -853,30 +991,22 @@ func (m *Model) execute(command string) tea.Cmd {
 		}
 	}
 	m.Modal = ""
-	return func() tea.Msg {
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			shell := "powershell"
-			if _, err := exec.LookPath("pwsh"); err == nil {
-				shell = "pwsh"
-			}
-			cmd = exec.Command(shell, "-NoProfile", "-NonInteractive", "-Command", command)
-		} else {
-			shell := os.Getenv("SHELL")
-			if shell == "" {
-				shell = "/bin/sh"
-			}
-			cmd = exec.Command(shell, "-c", command)
+	return tea.ExecProcess(newShellCommand(command), func(err error) tea.Msg { return runMsg{err: err} })
+}
+
+func newShellCommand(command string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		shell := "powershell"
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			shell = "pwsh"
 		}
-		var output cappedBuffer
-		cmd.Stdout, cmd.Stderr = &output, &output
-		err := cmd.Run()
-		text := cleanOutput(output.String())
-		if output.truncated {
-			text += " [output truncated]"
-		}
-		return runMsg{output: text, err: err}
+		return exec.Command(shell, "-NoProfile", "-Command", command)
 	}
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return exec.Command(shell, "-c", command)
 }
 
 func (b *cappedBuffer) Write(value []byte) (int, error) {

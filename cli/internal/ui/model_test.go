@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -10,12 +11,91 @@ import (
 	"github.com/snipbox/cli/internal/storage"
 )
 
-func TestNewStartsOnWelcomeOnlyWithoutQuery(t *testing.T) {
-	if model := New(nil, ""); model.Mode != "welcome" {
-		t.Fatalf("empty query mode = %q, want welcome", model.Mode)
+func TestNewStartsWithSplashOnlyWithoutQuery(t *testing.T) {
+	if model := New(nil, ""); model.Mode != "splash" {
+		t.Fatalf("empty query mode = %q, want splash", model.Mode)
 	}
 	if model := New(nil, "git"); model.Mode != "tree" {
 		t.Fatalf("query mode = %q, want tree", model.Mode)
+	}
+}
+
+func TestSplashCanBeSkippedAndAdvancesToWelcome(t *testing.T) {
+	model := New(nil, "")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if got := updated.(Model).Mode; got != "welcome" {
+		t.Fatalf("mode after splash key = %q, want welcome", got)
+	}
+	model = New(nil, "")
+	updated, cmd := model.Update(splashTickMsg{})
+	if got := updated.(Model).SplashFrame; got != 1 || cmd == nil {
+		t.Fatalf("splash tick frame/cmd = %d/%v, want 1 and next tick", got, cmd)
+	}
+	model.SplashFrame = splashFinalFrame - 1
+	updated, cmd = model.Update(splashTickMsg{})
+	if got := updated.(Model).Mode; got != "welcome" || cmd != nil {
+		t.Fatalf("final splash frame mode/cmd = %q/%v, want welcome and no timer", got, cmd)
+	}
+}
+
+func TestQuestionMarkSearchesUnlessSearchIsEmpty(t *testing.T) {
+	model := New(nil, "git")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if got := updated.(Model); got.Modal != "" || got.Query != "git?" {
+		t.Fatalf("? with a query = modal %q, query %q; want typed question mark", got.Modal, got.Query)
+	}
+	model = New(nil, "")
+	model.Mode = "tree"
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if got := updated.(Model); got.Modal != "help" || got.Query != "" {
+		t.Fatalf("? with an empty query = modal %q, query %q; want help", got.Modal, got.Query)
+	}
+}
+
+func TestEscapeClearsQueryBeforeQuitting(t *testing.T) {
+	model := New(nil, "git")
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if got := updated.(Model); got.Query != "" || cmd != nil {
+		t.Fatalf("first Esc query/cmd = %q/%v; want cleared query without quitting", got.Query, cmd)
+	}
+}
+
+func TestShiftTabMovesToPreviousCategory(t *testing.T) {
+	model := New(nil, "")
+	model.Mode, model.Tab = "tree", "Git"
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if got := updated.(Model).Tab; got != "All" {
+		t.Fatalf("Shift+Tab category = %q, want All", got)
+	}
+}
+
+func TestControlFTogglesFavorite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "status")
+	model.Selected = 2
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	if got := updated.(Model).Commands[0].Favorite; !got {
+		t.Fatal("Ctrl+F should favorite the selected command")
+	}
+}
+
+func TestControlDRequiresConfirmationBeforeDeleting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "status")
+	model.Selected = 2
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	model = updated.(Model)
+	if model.Modal != "confirm_delete" || len(model.Commands) != 1 {
+		t.Fatalf("Ctrl+D modal/count = %q/%d, want confirmation and unchanged command", model.Modal, len(model.Commands))
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	model = updated.(Model)
+	if model.Modal != "" || len(model.Commands) != 0 {
+		t.Fatalf("confirmed deletion modal/count = %q/%d, want closed modal and no command", model.Modal, len(model.Commands))
 	}
 }
 
@@ -84,11 +164,11 @@ func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
 	if rendered := model.commandList(64, 8); !strings.Contains(rendered, "14x") {
 		t.Fatalf("tree command row omitted usage count: %q", rendered)
 	}
-	if got := len(keys.ShortHelp()); got != 9 {
-		t.Fatalf("short help has %d bindings, want 9", got)
+	if got := len(keys.ShortHelp()); got != 13 {
+		t.Fatalf("short help has %d bindings, want 13", got)
 	}
 	helpView := helpFooter(help.New(), 44)
-	for _, desc := range []string{"copy", "run", "tabs", "new", "edit", "history", "about", "help", "quit"} {
+	for _, desc := range []string{"copy", "run", "tabs", "previous tab", "new", "edit", "favorite", "delete", "history", "about", "help", "welcome", "quit"} {
 		if !strings.Contains(helpView, desc) {
 			t.Errorf("responsive footer omitted %q: %q", desc, helpView)
 		}
@@ -101,7 +181,7 @@ func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
 }
 
 func TestViewFitsTerminalBounds(t *testing.T) {
-	for _, size := range [][2]int{{120, 40}, {96, 30}, {80, 24}} {
+	for _, size := range [][2]int{{120, 40}, {96, 30}, {80, 24}, {70, 18}} {
 		model := New([]storage.Command{{Name: "Git status", Category: "Git", Description: "Inspect the working tree", Command: "git status --short --branch"}}, "git")
 		model.Width, model.Height = size[0], size[1]
 		view := model.View()
@@ -116,8 +196,61 @@ func TestViewFitsTerminalBounds(t *testing.T) {
 	}
 }
 
+func TestSplashFitsTerminalBounds(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {70, 18}} {
+		model := New(nil, "")
+		model.Width, model.Height, model.SplashFrame = size[0], size[1], 39
+		view := model.View()
+		if !strings.Contains(view, "SNIPBOX") || !strings.Contains(view, "Ready") {
+			t.Fatalf("splash is missing its final frame content: %q", view)
+		}
+		if got := lipgloss.Height(view); got > size[1] {
+			t.Errorf("splash height = %d at %dx%d", got, size[0], size[1])
+		}
+		for line, content := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(content); got > size[0] {
+				t.Errorf("splash line %d width = %d at %dx%d", line+1, got, size[0], size[1])
+			}
+		}
+	}
+}
+
+func TestDetailsPanelUsesScrollableViewport(t *testing.T) {
+	description := strings.Join([]string{"detail line"}, "\n")
+	for i := 0; i < 30; i++ {
+		description += "\ndetail line"
+	}
+	model := New([]storage.Command{{Name: "Long details", Category: "Git", Subcategory: "Basics & Staging", Description: description, Command: "git status"}}, "details")
+	model.Selected = 2
+	model.detailsView.Width, model.detailsView.Height = 54, 6
+	model.syncDetails()
+	before := model.detailsPanel(58, 8)
+	model.detailsView.SetYOffset(10)
+	after := model.detailsPanel(58, 8)
+	if before == after {
+		t.Fatal("scrolling the details viewport should change the visible panel content")
+	}
+}
+
+func TestTreeSelectionUsesItsOwnSearchHighlightsAndFitsPanelRows(t *testing.T) {
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "status")
+	model.Mode = "tree"
+	for i, row := range model.treeRows() {
+		if row.Kind == "command" {
+			model.Selected = i
+			break
+		}
+	}
+	if got := model.selectedIndices(); len(got) == 0 {
+		t.Fatal("selected tree command should retain the match indices for highlighting")
+	}
+	if got := lipgloss.Height(model.commandList(64, 5)); got > 5 {
+		t.Fatalf("command panel height = %d, want at most 5", got)
+	}
+}
+
 func TestModalsFitTerminalBounds(t *testing.T) {
-	for _, modal := range []string{"help", "about", "form", "variables", "history", "confirm"} {
+	for _, modal := range []string{"help", "about", "form", "variables", "history", "confirm", "confirm_delete"} {
 		model := New(nil, "")
 		model.Width, model.Height, model.Modal = 96, 28, modal
 		model.form = []string{"Linux/Bash", "General", "name", "description", "tag", "command"}
@@ -139,12 +272,19 @@ func TestModalsFitTerminalBounds(t *testing.T) {
 	}
 }
 
+func TestModalWidthIsCappedAt68Columns(t *testing.T) {
+	box := modalBox(68, strings.Repeat("Long modal content ", 12))
+	if width := lipgloss.Width(box); width > 68 {
+		t.Fatalf("modal box width = %d, want at most 68", width)
+	}
+}
+
 func TestTinyTerminalShowsResizeHint(t *testing.T) {
-	for _, size := range [][2]int{{60, 14}, {24, 8}} {
+	for _, size := range [][2]int{{69, 18}, {70, 17}, {60, 14}, {24, 8}} {
 		model := New(nil, "")
 		model.Width, model.Height = size[0], size[1]
 		view := model.View()
-		if !strings.Contains(view, "Resize the terminal") {
+		if !strings.Contains(view, "Terminal") {
 			t.Fatal("small terminals should show a resize hint")
 		}
 		if got := lipgloss.Height(view); got > size[1] {
@@ -215,6 +355,20 @@ func TestFormInputIsInteractive(t *testing.T) {
 func TestCleanOutputRemovesTerminalControlSequences(t *testing.T) {
 	if got := cleanOutput("\x1b[31mComplete\x1b[0m\r\n"); got != "Complete" {
 		t.Fatalf("cleanOutput() = %q, want Complete", got)
+	}
+}
+
+func TestShellCommandUsesPlatformShell(t *testing.T) {
+	cmd := newShellCommand("echo snipbox")
+	if cmd == nil || len(cmd.Args) == 0 {
+		t.Fatal("shell command should be constructed")
+	}
+	if runtime.GOOS == "windows" {
+		if cmd.Args[len(cmd.Args)-2] != "-Command" || cmd.Args[len(cmd.Args)-1] != "echo snipbox" {
+			t.Fatalf("Windows shell args = %#v", cmd.Args)
+		}
+	} else if len(cmd.Args) < 3 || cmd.Args[len(cmd.Args)-2] != "-c" || cmd.Args[len(cmd.Args)-1] != "echo snipbox" {
+		t.Fatalf("Unix shell args = %#v", cmd.Args)
 	}
 }
 

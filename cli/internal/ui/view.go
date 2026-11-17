@@ -14,11 +14,16 @@ import (
 )
 
 func (m Model) View() string {
-	if m.Width < 72 || m.Height < 16 {
-		return fit(Base, m.Width, m.Height, "SNIPBOX\n\nResize the terminal to at least 72 columns by 16 rows.")
+	if m.Width < 70 || m.Height < 18 {
+		width := max(1, m.Width)
+		hint := lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(wrapLines("Terminal window too small (min 70x18). Please resize.", width))
+		return fit(Base, width, m.Height, hint)
 	}
 	if m.Modal != "" {
 		return m.renderModal()
+	}
+	if m.Mode == "splash" {
+		return m.splashView()
 	}
 	if m.Mode == "welcome" {
 		return m.welcomeView()
@@ -40,8 +45,11 @@ func (m Model) browseView() string {
 		status = style.Render(ansi.Truncate(m.Status, max(1, m.Width-2), "…"))
 	}
 	headerHeight, footerHeight := lipgloss.Height(header), lipgloss.Height(helpLine)
-	bodyHeight := max(3, m.Height-headerHeight-footerHeight-2)
-	leftOuter, rightOuter, leftContent, rightContent := panelWidths(m.Width)
+	if status != "" {
+		footerHeight += lipgloss.Height(status)
+	}
+	bodyHeight := max(3, m.Height-headerHeight-footerHeight)
+	_, _, leftContent, rightContent := panelWidths(m.Width)
 	contentHeight := max(1, bodyHeight-2)
 	left := m.commandList(leftContent, contentHeight)
 	right := m.detailsPanel(rightContent, contentHeight)
@@ -50,9 +58,32 @@ func (m Model) browseView() string {
 	if status != "" {
 		view = lipgloss.JoinVertical(lipgloss.Left, view, status)
 	}
-	_ = leftOuter
-	_ = rightOuter
 	return fit(Base, m.Width, m.Height, view)
+}
+
+func (m Model) splashView() string {
+	visible := min(7, 7*m.SplashFrame/15)
+	content := gradientText("SNIPBOX"[:visible])
+	if m.SplashFrame >= 15 {
+		subtitle := "Terminal Command Orchestrator & Knowledge Base"
+		shown := min(len(subtitle), len(subtitle)*(m.SplashFrame-15)/13)
+		content += "\n\n" + Muted.Render(subtitle[:shown])
+	}
+	if m.SplashFrame >= 28 {
+		filled := min(20, 20*(m.SplashFrame-28)/(splashFinalFrame-29))
+		content += fmt.Sprintf("\n\n[%s%s] Ready", strings.Repeat("█", filled), strings.Repeat("░", 20-filled))
+	}
+	content += "\n\n" + Muted.Render("Press any key to skip")
+	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, content))
+}
+
+func gradientText(value string) string {
+	colors := []lipgloss.Color{blue, "#8b9df5", purple, "#d196c7", "#ec8e9e", "#ff9e64", purple}
+	var b strings.Builder
+	for i, r := range value {
+		b.WriteString(lipgloss.NewStyle().Foreground(colors[i%len(colors)]).Bold(true).Render(string(r)))
+	}
+	return b.String()
 }
 
 func (m Model) welcomeView() string {
@@ -83,7 +114,7 @@ func (m Model) welcomeView() string {
 		style = Selected
 	}
 	fmt.Fprintf(&b, "  %s\n\n", style.Render("0   Browse All Tree"))
-	b.WriteString(Muted.Render("Use ↑/↓ and Enter, or press a number to open a section.  ? Help  •  Esc Quit"))
+	b.WriteString(Muted.Render("Use Up/Down and Enter, or press a number to open a section.  ? Help  Ctrl+W Dashboard  Esc Quit"))
 	innerWidth := max(1, m.Width-6)
 	content := lipgloss.NewStyle().Width(innerWidth).MaxWidth(innerWidth).Align(lipgloss.Center).Render(b.String())
 	card := ActivePanel.Width(max(1, m.Width-4)).Height(max(1, m.Height-4)).MaxHeight(max(1, m.Height-4)).Align(lipgloss.Center, lipsCenter()).Render(content)
@@ -159,10 +190,11 @@ func panelWidths(width int) (leftOuter, rightOuter, leftContent, rightContent in
 func (m Model) commandList(width, height int) string {
 	var b strings.Builder
 	rows := m.matches()
+	visibleRows := max(1, height-1) // The panel title occupies one row.
 	if m.Mode == "tree" {
 		tree := m.treeRows()
-		start := min(max(0, m.Selected-height+1), max(0, len(tree)-height))
-		for i := start; i < min(start+height, len(tree)); i++ {
+		start := min(max(0, m.Selected-visibleRows+1), max(0, len(tree)-visibleRows))
+		for i := start; i < min(start+visibleRows, len(tree)); i++ {
 			row := tree[i]
 			marker := "  "
 			if i == m.Selected {
@@ -208,11 +240,11 @@ func (m Model) commandList(width, height int) string {
 			b.WriteString(ansi.Truncate(marker+style.Render(label), width, "…") + "\n")
 		}
 	} else {
-		start := min(max(0, m.Selected-height+1), max(0, len(rows)-height))
+		start := min(max(0, m.Selected-visibleRows+1), max(0, len(rows)-visibleRows))
 		if len(rows) == 0 {
 			b.WriteString(Muted.Render("No commands match this search."))
 		}
-		for i := start; i < min(start+height, len(rows)); i++ {
+		for i := start; i < min(start+visibleRows, len(rows)); i++ {
 			hit := rows[i]
 			c := m.Commands[hit.Index]
 			cursor := "  "
@@ -237,7 +269,6 @@ func (m Model) commandList(width, height int) string {
 }
 
 func (m Model) detailsPanel(width, height int) string {
-	contentWidth := max(1, width-4)
 	details := m.detailsContent()
 	if m.Mode == "tree" {
 		if row, ok := m.selectedTreeRow(); ok && row.Kind != "command" {
@@ -253,9 +284,11 @@ func (m Model) detailsPanel(width, height int) string {
 			}
 		}
 	}
-	wrapped := wrapLines(details, contentWidth)
-	card := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(purple).Background(background).Padding(0, 1).Width(contentWidth).MaxWidth(contentWidth).Render(wrapped)
-	return DetailPanel.Width(width).Height(height).MaxHeight(height).Render(SectionTitle.Render("Command Details") + "\n" + card)
+	viewport := m.detailsView
+	viewport.Width = max(1, width)
+	viewport.Height = max(1, height-1)
+	viewport.SetContent(wrapLines(details, max(1, width-2)))
+	return DetailPanel.Width(width).Height(height).MaxHeight(height).Render(SectionTitle.Render("Command Details") + "\n" + viewport.View())
 }
 
 func (m Model) detailsContent() string {
@@ -297,6 +330,12 @@ func (m Model) detailsContent() string {
 }
 
 func (m Model) selectedIndices() []int {
+	if m.Mode == "tree" {
+		if row, ok := m.selectedTreeRow(); ok && row.Kind == "command" {
+			return row.Indices
+		}
+		return nil
+	}
 	rows := m.matches()
 	if m.Selected < 0 || m.Selected >= len(rows) {
 		return nil
@@ -305,16 +344,24 @@ func (m Model) selectedIndices() []int {
 }
 
 func (m Model) renderModal() string {
-	content := wrapLines(m.modalView(), max(1, min(76, m.Width-18)))
+	modalWidth := max(1, min(68, m.Width-4))
+	content := wrapLines(m.modalView(), max(1, modalWidth-10))
 	lines := strings.Split(content, "\n")
 	maxHeight := max(1, m.Height-10)
 	if len(lines) > maxHeight {
 		lines = lines[:maxHeight]
 	}
 	content = strings.Join(lines, "\n")
-	inner := ModalInner.Width(max(1, min(72, m.Width-18))).MaxWidth(max(1, min(72, m.Width-18))).Render(content)
-	outer := ModalOuter.MaxWidth(max(1, m.Width-8)).Render(inner)
+	outer := modalBox(modalWidth, content)
 	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, outer))
+}
+
+func modalBox(width int, content string) string {
+	width = max(1, width)
+	innerWidth := max(1, width-10)
+	inner := ModalInner.Width(innerWidth).MaxWidth(innerWidth).Render(wrapLines(content, innerWidth))
+	outerWidth := max(1, width-4)
+	return ModalOuter.Width(outerWidth).MaxWidth(outerWidth).Render(inner)
 }
 
 func (m Model) modalView() string {
@@ -358,6 +405,8 @@ func (m Model) modalView() string {
 		return b.String()
 	case "confirm":
 		return "Confirm Execution\n\n[!] Review this potentially destructive command:\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
+	case "confirm_delete":
+		return "Delete Command?\n\nThis permanently removes the selected command from your local library.\n\nPress Y or Enter to delete  •  N / Esc to cancel"
 	}
 	return m.Modal
 }
@@ -365,7 +414,14 @@ func (m Model) modalView() string {
 func fit(style lipgloss.Style, width, height int, value string) string {
 	width = max(1, width)
 	height = max(1, height)
-	return style.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(value)
+	lines := strings.Split(value, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for i := range lines {
+		lines[i] = ansi.Truncate(lines[i], width, "…")
+	}
+	return style.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(strings.Join(lines, "\n"))
 }
 func truncate(value string, width int) string { return ansi.Truncate(value, max(0, width), "…") }
 func wrapLines(value string, width int) string {
