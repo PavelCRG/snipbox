@@ -7,7 +7,7 @@ struct Command {
     #[serde(default)]
     description: String,
     #[serde(default)]
-    tags: Vec<String>,
+    tags: Option<Vec<String>>,
     #[serde(default)]
     command: String,
     #[serde(default)]
@@ -35,7 +35,7 @@ pub fn search(json: &str, query: &str) -> Result<String, String> {
             let fields = [&c.name, &c.description, &c.command];
             let best = fields
                 .into_iter()
-                .chain(c.tags.iter())
+                .chain(c.tags.iter().flatten())
                 .filter_map(|s| matcher.fuzzy_indices(s, query))
                 .max_by_key(|(score, _)| *score);
             let (score, _) = best?;

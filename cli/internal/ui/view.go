@@ -17,10 +17,11 @@ func (m Model) View() string {
 		if tab == m.Tab {
 			b.WriteString(Selected.Render("[ " + tab + " ] "))
 		} else {
-			b.WriteString(" " + tab + " ")
+			b.WriteString(CategoryStyle(tab).Render(" " + tab + " "))
 		}
 	}
-	b.WriteString(fmt.Sprintf("    %d / %d\nSearch: %s\n\n", len(hits), len(m.Commands), m.Query))
+	b.WriteString(Selected.Render(fmt.Sprintf("    %d / %d", len(hits), len(m.Commands))))
+	b.WriteString("\n" + SectionTitle.Render("Search") + ": " + m.Query + "\n\n")
 	var left, right strings.Builder
 	rows := max(1, m.Height-15)
 	start := max(0, m.Selected-rows+1)
@@ -45,7 +46,11 @@ func (m Model) View() string {
 	if len(hits) > 0 {
 		hit := hits[min(max(m.Selected, 0), len(hits)-1)]
 		command := m.Commands[hit.Index]
-		fmt.Fprintf(&right, "%s\nTags: %s\n\nDescription:\n%s\n\nCommand:\n%s\n\nVariables:\n", highlight(command.Name, hit.Indices), strings.Join(command.Tags, ", "), command.Description, highlightTemplate(command.Command))
+		right.WriteString(SectionTitle.Render(highlight(command.Name, hit.Indices)) + "\n")
+		right.WriteString(Muted.Render("Tags: ") + strings.Join(command.Tags, ", ") + "\n\n")
+		right.WriteString(SectionTitle.Render("Description") + "\n" + command.Description + "\n\n")
+		right.WriteString(SectionTitle.Render("Command") + "\n" + CommandBlock.Render(highlightTemplate(command.Command)) + "\n\n")
+		right.WriteString(SectionTitle.Render("Variables") + "\n")
 		parsed, err := bridge.Parse(command.Command)
 		if err == nil {
 			var info templateInfo
@@ -57,7 +62,7 @@ func (m Model) View() string {
 					fmt.Fprintf(&right, "• {{%s:%s}}\n", variable.Name, variable.Default)
 				}
 				if info.Dangerous {
-					right.WriteString("\n⚠ Dangerous command\n")
+					right.WriteString("\n" + Danger.Render("⚠ Dangerous command") + "\n")
 				}
 			}
 		}
@@ -67,8 +72,19 @@ func (m Model) View() string {
 		width = 36
 	}
 	rightWidth := max(24, m.Width-width-6)
-	b.WriteString(Panel.Width(width).Render("Commands\n"+left.String()) + " " + Panel.Width(rightWidth).Render("Command Details\n"+right.String()))
-	b.WriteString("\n\n[Enter] Copy  [Ctrl+R] Run  [Tab] Tabs  [Ctrl+A] New  [Ctrl+E] Edit  [Ctrl+H] History  [?] Help  [Esc] Quit\n" + m.Status)
+	leftPanel := Panel.Width(width).Render(SectionTitle.Render("Commands") + "\n" + left.String())
+	rightPanel := Panel.Width(rightWidth).Render(SectionTitle.Render("Command Details") + "\n" + right.String())
+	panelHeight := max(lipgloss.Height(leftPanel), lipgloss.Height(rightPanel))
+	gap := strings.TrimSuffix(strings.Repeat(" \n", panelHeight), "\n")
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, gap, rightPanel))
+	b.WriteString("\n\n" + Muted.Render("[Enter] Copy  [Ctrl+R] Run  [Tab] Tabs  [Ctrl+A] New  [Ctrl+E] Edit  [Ctrl+H] History  [?] Help  [Esc] Quit"))
+	if m.Status != "" {
+		style := Success
+		if strings.Contains(strings.ToLower(m.Status), "error") || strings.Contains(strings.ToLower(m.Status), "failed") || strings.Contains(strings.ToLower(m.Status), "could not") {
+			style = Danger
+		}
+		b.WriteString("\n" + style.Render(m.Status))
+	}
 	if m.Modal != "" {
 		return Base.Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, Panel.BorderForeground(purple).Render(m.modalView())))
 	}

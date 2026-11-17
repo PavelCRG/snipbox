@@ -7,8 +7,9 @@ import (
 
 func TestSearchReturnsFavoriteFirstAndHighlightIndices(t *testing.T) {
 	commands := []struct {
-		Name     string `json:"name"`
-		Favorite bool   `json:"is_favorite"`
+		Name     string   `json:"name"`
+		Tags     []string `json:"tags"`
+		Favorite bool     `json:"is_favorite"`
 	}{
 		{Name: "git status"},
 		{Name: "git stash", Favorite: true},

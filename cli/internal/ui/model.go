@@ -63,7 +63,7 @@ type Model struct {
 }
 
 func New(commands []storage.Command, query string) Model {
-	return Model{Commands: commands, Query: query, Tab: "All", editIndex: -1}
+	return Model{Commands: commands, Query: query, Tab: "Git", editIndex: -1}
 }
 
 func (m Model) Init() tea.Cmd { return nil }

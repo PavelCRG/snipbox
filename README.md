@@ -36,6 +36,8 @@ Launch the interactive workspace:
 snipbox
 ```
 
+The workspace opens on the **Git** collection. Press **Tab** to cycle through the other collections.
+
 Open it with a search already in place, list the library, or locate its data file:
 
 ```sh
