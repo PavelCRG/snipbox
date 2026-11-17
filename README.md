@@ -16,14 +16,15 @@ Fuzzy-find, customize, and run the commands you use every day — from one focus
 
 Snipbox is a cross-platform command library with a fast Rust search engine and a Go terminal interface. Search snippets as you type, keep the useful ones organized, fill in template values, copy commands, or run them when you need them. Your library lives in a plain TOML file that you own.
 
-The interface is designed around a simple loop: find a command, see what it does, then copy or run it. Five starter collections give a new installation something useful from the first launch: **Git**, **Docker**, **System**, **Network**, and **Tools**.
+The interface is designed around a simple loop: find a command, see what it does, then copy or run it. A welcome dashboard opens on first launch, with five starter collections: **Git**, **PowerShell**, **Docker**, **Linux/Bash**, and **Network**. Browse the library as a searchable category and subcategory tree.
 
-Created by **Pavel Slepcov**. The application interface is available in English and Russian; press **Ctrl+L** to switch languages and **Ctrl+O** to open About.
+Created by **Pavel Slepcov**. The application interface and starter library are in English. Press **Ctrl+O** to open About.
 
 ## Made for the terminal
 
 - **Live fuzzy search** across command names, descriptions, tags, and command text.
 - **A two-panel workspace** with category tabs, favorites, usage counts, highlighted matches, and command details.
+- **A welcome dashboard and expandable tree** for browsing categories and subcategories.
 - **Reusable templates** with editable prompts and defaults, such as `{{branch:feature/new-work}}`.
 - **Create and edit snippets** in the interface; changes are saved immediately to your local TOML library.
 - **Copy or run commands** with captured output and usage tracking. Destructive patterns require an explicit confirmation.
@@ -38,7 +39,7 @@ Launch the interactive workspace:
 snipbox
 ```
 
-The workspace opens on the **Git** collection. Press **Tab** to cycle through the other collections.
+The welcome dashboard shows command, category, and favorite counts. Select a category with the arrow keys and **Enter**, or use **1–5** to jump directly. Choose **0** to browse the complete command tree. Press **w** in the tree to return to the dashboard when the search is empty.
 
 Open it with a search already in place, list the library, or locate its data file:
 
@@ -48,7 +49,7 @@ snipbox --list
 snipbox --path
 ```
 
-On the first launch Snipbox creates `~/.snipbox/commands.toml` with 25 English starter commands — five for each collection. System, network, and utility commands are tailored to Windows PowerShell, macOS, or Linux. You can edit the file in any text editor, or use **Ctrl+A** and **Ctrl+E** inside Snipbox.
+On the first launch Snipbox creates `~/.snipbox/commands.toml` with 40 English starter commands: 12 Git, 10 PowerShell, and 6 each for Docker, Linux/Bash, and Network. Every command has a category, subcategory, description, tags, and command text. You can edit the file in any text editor, or use **Ctrl+A** and **Ctrl+E** inside Snipbox.
 
 ### Command templates
 
@@ -74,7 +75,10 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | `Ctrl+A` | Create a command |
 | `Ctrl+E` | Edit the selected command |
 | `Ctrl+H` | Import a command from shell history |
-| `Ctrl+L` | Switch between English and Russian |
+| `0`–`5` | Choose a dashboard section (`0` opens the complete tree) |
+| `Left` / `Right` or `Space` | Collapse or expand a tree branch |
+| `w` | Return to the welcome dashboard when search is empty |
+| `/` | Open search and browse |
 | `Ctrl+O` | Open About |
 | `?` | Show keyboard shortcuts |
 | `Esc` | Close a dialog or quit |

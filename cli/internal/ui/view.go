@@ -5,166 +5,380 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/snipbox/cli/internal/bridge"
+	"github.com/snipbox/cli/internal/storage"
 )
 
 func (m Model) View() string {
 	if m.Width < 72 || m.Height < 16 {
-		return Base.Render("SNIPBOX\n\n" + tr(m.Language, "resize"))
+		return fit(Base, m.Width, m.Height, "SNIPBOX\n\nResize the terminal to at least 72 columns by 16 rows.")
 	}
-	hits := m.matches()
+	if m.Modal != "" {
+		return m.renderModal()
+	}
+	if m.Mode == "welcome" {
+		return m.welcomeView()
+	}
+	return m.browseView()
+}
+
+func (m Model) browseView() string {
+	header := m.headerView()
+	helpView := m.helpView
+	helpView.Width = max(1, m.Width-4)
+	helpLine := Muted.Render(helpFooter(helpView, max(1, m.Width-4)))
+	status := ""
+	if m.Status != "" {
+		style := Success
+		if strings.Contains(strings.ToLower(m.Status), "error") || strings.Contains(strings.ToLower(m.Status), "failed") || strings.Contains(strings.ToLower(m.Status), "could not") {
+			style = Danger
+		}
+		status = style.Render(ansi.Truncate(m.Status, max(1, m.Width-2), "…"))
+	}
+	headerHeight, footerHeight := lipgloss.Height(header), lipgloss.Height(helpLine)
+	bodyHeight := max(3, m.Height-headerHeight-footerHeight-2)
+	leftOuter, rightOuter, leftContent, rightContent := panelWidths(m.Width)
+	contentHeight := max(1, bodyHeight-2)
+	left := m.commandList(leftContent, contentHeight)
+	right := m.detailsPanel(rightContent, contentHeight)
+	split := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", 2), right)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, split, helpLine)
+	if status != "" {
+		view = lipgloss.JoinVertical(lipgloss.Left, view, status)
+	}
+	_ = leftOuter
+	_ = rightOuter
+	return fit(Base, m.Width, m.Height, view)
+}
+
+func (m Model) welcomeView() string {
 	var b strings.Builder
-	b.WriteString(Title.Render("SNIPBOX") + "    ")
-	for _, tab := range []string{"All", "Git", "Docker", "System", "Network", "Tools"} {
-		label := tab
-		if tab == "All" && m.Language == russian {
-			label = "Все"
+	logo := Title.Render("  ____  _   _ ___ ____  ____   ___  __  __\n / ___|| | | |_ _|  _ \\/ ___| / _ \\|  \\/  |\n \\___ \\| |_| || || |_) \\___ \\| | | | |\\/| |\n  ___) |  _  || ||  __/ ___) | |_| | |  | |\n |____/|_| |_|___|_|   |____/ \\___/|_|  |_|")
+	b.WriteString("\n\n")
+	b.WriteString(logo)
+	b.WriteString("\n\n")
+	b.WriteString(SectionTitle.Render("Terminal Command Orchestrator & Knowledge Base"))
+	favorites := 0
+	for _, c := range m.Commands {
+		if c.Favorite {
+			favorites++
 		}
-		if tab == m.Tab {
-			b.WriteString(Selected.Render("[ " + label + " ] "))
+	}
+	fmt.Fprintf(&b, "\n\n%d commands   •   %d categories   •   %d favorites\n\n", len(m.Commands), len(storage.Categories()), favorites)
+	for i, category := range storage.Categories() {
+		line := fmt.Sprintf("%d   %s   %d commands", i+1, category, countCategory(m.Commands, category))
+		style := Muted
+		if i == m.WelcomeSelected {
+			style = Selected
+		}
+		fmt.Fprintf(&b, "  %s\n", style.Render(line))
+	}
+	allIndex := len(storage.Categories())
+	style := Muted
+	if m.WelcomeSelected == allIndex {
+		style = Selected
+	}
+	fmt.Fprintf(&b, "  %s\n\n", style.Render("0   Browse All Tree"))
+	b.WriteString(Muted.Render("Use ↑/↓ and Enter, or press a number to open a section.  ? Help  •  Esc Quit"))
+	innerWidth := max(1, m.Width-6)
+	content := lipgloss.NewStyle().Width(innerWidth).MaxWidth(innerWidth).Align(lipgloss.Center).Render(b.String())
+	card := ActivePanel.Width(max(1, m.Width-4)).Height(max(1, m.Height-4)).MaxHeight(max(1, m.Height-4)).Align(lipgloss.Center, lipsCenter()).Render(content)
+	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, card))
+}
+
+func lipsCenter() lipgloss.Position { return lipgloss.Center }
+
+func countCategory(commands []storage.Command, category string) int {
+	n := 0
+	for _, c := range commands {
+		if c.Category == category {
+			n++
+		}
+	}
+	return n
+}
+
+func helpFooter(model help.Model, width int) string {
+	var rows []string
+	var current []key.Binding
+	for _, binding := range keys.ShortHelp() {
+		candidate := append(append([]key.Binding(nil), current...), binding)
+		model.Width = 0
+		if len(current) > 0 && lipgloss.Width(model.ShortHelpView(candidate)) > width {
+			model.Width = width
+			rows = append(rows, model.ShortHelpView(current))
+			current = []key.Binding{binding}
 		} else {
-			b.WriteString(CategoryStyle(tab).Render(" " + label + " "))
+			current = candidate
 		}
 	}
-	b.WriteString(Selected.Render(fmt.Sprintf("    %d / %d", len(hits), len(m.Commands))))
-	b.WriteString("\n" + SectionTitle.Render(tr(m.Language, "search")) + ": " + m.Query + "\n\n")
-	var left, right strings.Builder
-	rows := max(1, m.Height-15)
-	start := max(0, m.Selected-rows+1)
-	for i := start; i < min(start+rows, len(hits)); i++ {
-		hit := hits[i]
-		command := m.Commands[hit.Index]
-		prefix, star := "  ", ""
-		if i == m.Selected {
-			prefix = "> "
+	if len(current) > 0 {
+		model.Width = width
+		rows = append(rows, model.ShortHelpView(current))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m Model) headerView() string {
+	innerWidth := max(1, m.Width-2)
+	brand := Title.Render("[ SNIPBOX ]")
+	tabs := append([]string{"All"}, storage.Categories()...)
+	var tabParts []string
+	for _, tab := range tabs {
+		style := Muted
+		if tab == m.Tab {
+			style = CategoryStyle(tab)
 		}
-		if command.Favorite {
-			star = "★ "
+		tabParts = append(tabParts, style.Render(" "+tab+" "))
+	}
+	tabRow := strings.Join(tabParts, " ")
+	top := lipgloss.JoinHorizontal(lipgloss.Top, brand, strings.Repeat(" ", max(1, innerWidth-lipgloss.Width(brand)-lipgloss.Width(tabRow))), tabRow)
+	top = ansi.Truncate(top, innerWidth, "…")
+	search := m.searchInput
+	search.Prompt = "> Search: "
+	count := Selected.Render(fmt.Sprintf("%d / %d", len(m.matches()), len(m.Commands)))
+	search.Width = max(1, innerWidth-lipgloss.Width(search.Prompt)-lipgloss.Width(count)-2)
+	searchView := search.View()
+	second := lipgloss.JoinHorizontal(lipgloss.Top, searchView, strings.Repeat(" ", max(1, innerWidth-lipgloss.Width(searchView)-lipgloss.Width(count))), count)
+	content := lipgloss.JoinVertical(lipgloss.Left, ansi.Truncate(top, innerWidth, "…"), ansi.Truncate(second, innerWidth, "…"))
+	return Header.Width(innerWidth).MaxWidth(innerWidth).Render(content)
+}
+
+func panelWidths(width int) (leftOuter, rightOuter, leftContent, rightContent int) {
+	leftOuter = max(1, int(float64(width)*0.42)-2)
+	rightOuter = max(1, width-leftOuter-4)
+	leftContent = max(1, leftOuter-4)
+	rightContent = max(1, rightOuter-4)
+	return
+}
+
+func (m Model) commandList(width, height int) string {
+	var b strings.Builder
+	rows := m.matches()
+	if m.Mode == "tree" {
+		tree := m.treeRows()
+		start := min(max(0, m.Selected-height+1), max(0, len(tree)-height))
+		for i := start; i < min(start+height, len(tree)); i++ {
+			row := tree[i]
+			marker := "  "
+			if i == m.Selected {
+				marker = Selected.Render("┃ ")
+			}
+			label := ""
+			switch row.Kind {
+			case "category":
+				arrow := "▸"
+				if m.categoryExpanded[row.Category] || m.Query != "" {
+					arrow = "▾"
+				}
+				label = arrow + " " + row.Category + fmt.Sprintf(" (%d)", countCategory(m.Commands, row.Category))
+			case "subcategory":
+				key := row.Category + "\x00" + row.Subcategory
+				arrow := "▸"
+				if m.subcategoryExpanded[key] || m.Query != "" {
+					arrow = "▾"
+				}
+				label = "  " + arrow + " " + row.Subcategory
+			case "command":
+				c := m.Commands[row.Index]
+				star := " "
+				if c.Favorite {
+					star = "★"
+				}
+				label = "      " + star + " " + c.Name
+				usage := Muted.Render(fmt.Sprintf("%dx", c.Usage))
+				labelWidth := max(1, width-lipgloss.Width(marker)-lipgloss.Width(usage)-1)
+				label = ansi.Truncate(label, labelWidth, "…")
+				padding := strings.Repeat(" ", max(1, width-lipgloss.Width(marker)-lipgloss.Width(label)-lipgloss.Width(usage)))
+				style := Muted
+				if i == m.Selected {
+					style = Selected
+				}
+				b.WriteString(ansi.Truncate(marker+style.Render(label)+padding+usage, width, "…") + "\n")
+				continue
+			}
+			style := Muted
+			if i == m.Selected {
+				style = Selected
+			}
+			b.WriteString(ansi.Truncate(marker+style.Render(label), width, "…") + "\n")
 		}
-		fmt.Fprintf(&left, "%s%s%s %s (%dx)\n", prefix, star, CategoryStyle(command.Category).Render("["+command.Category+"]"), highlight(command.Name, hit.Indices), command.Usage)
+	} else {
+		start := min(max(0, m.Selected-height+1), max(0, len(rows)-height))
+		if len(rows) == 0 {
+			b.WriteString(Muted.Render("No commands match this search."))
+		}
+		for i := start; i < min(start+height, len(rows)); i++ {
+			hit := rows[i]
+			c := m.Commands[hit.Index]
+			cursor := "  "
+			nameStyle := lipgloss.NewStyle().Foreground(foreground)
+			if i == m.Selected {
+				cursor = Selected.Render("┃ ▶")
+				nameStyle = Selected
+			}
+			favorite := "  "
+			if c.Favorite {
+				favorite = "★ "
+			}
+			badge := CategoryStyle(c.Category).Render(c.Category)
+			usage := Muted.Render(fmt.Sprintf("%dx", c.Usage))
+			nameWidth := max(1, width-lipgloss.Width(cursor)-lipgloss.Width(favorite)-lipgloss.Width(badge)-lipgloss.Width(usage)-4)
+			name := ansi.Truncate(c.Name, nameWidth, "…")
+			row := lipgloss.JoinHorizontal(lipgloss.Left, cursor, favorite, badge, " ", nameStyle.Render(highlight(name, hit.Indices)), " ", usage)
+			b.WriteString(ansi.Truncate(row, width, "…") + "\n")
+		}
 	}
-	if start > 0 {
-		left.WriteString("↑ more results above\n")
-	}
-	if start+rows < len(hits) {
-		left.WriteString("↓ more results below\n")
-	}
-	if len(hits) > 0 {
-		hit := hits[min(max(m.Selected, 0), len(hits)-1)]
-		command := m.Commands[hit.Index]
-		right.WriteString(SectionTitle.Render(highlight(command.Name, hit.Indices)) + "\n")
-		right.WriteString(Muted.Render(tr(m.Language, "tags")+": ") + strings.Join(command.Tags, ", ") + "\n\n")
-		right.WriteString(SectionTitle.Render(tr(m.Language, "description")) + "\n" + command.Description + "\n\n")
-		right.WriteString(SectionTitle.Render(tr(m.Language, "command")) + "\n" + CommandBlock.Render(highlightTemplate(command.Command)) + "\n\n")
-		right.WriteString(SectionTitle.Render(tr(m.Language, "variables")) + "\n")
-		parsed, err := bridge.Parse(command.Command)
-		if err == nil {
-			var info templateInfo
-			if json.Unmarshal([]byte(parsed), &info) == nil {
-				if len(info.Variables) == 0 {
-					right.WriteString(tr(m.Language, "none") + "\n")
+	return ActivePanel.Width(width).Height(height).MaxHeight(height).Render(SectionTitle.Render("Commands") + "\n" + strings.TrimSuffix(b.String(), "\n"))
+}
+
+func (m Model) detailsPanel(width, height int) string {
+	contentWidth := max(1, width-4)
+	details := m.detailsContent()
+	if m.Mode == "tree" {
+		if row, ok := m.selectedTreeRow(); ok && row.Kind != "command" {
+			details = fmt.Sprintf("%s\n\n%d commands\n\nSelect a command to view its details.", row.Category, countCategory(m.Commands, row.Category))
+			if row.Kind == "subcategory" {
+				n := 0
+				for _, c := range m.Commands {
+					if c.Category == row.Category && c.Subcategory == row.Subcategory {
+						n++
+					}
 				}
-				for _, variable := range info.Variables {
-					fmt.Fprintf(&right, "• {{%s:%s}}\n", variable.Name, variable.Default)
-				}
-				if info.Dangerous {
-					right.WriteString("\n" + Danger.Render("⚠ "+tr(m.Language, "danger")) + "\n")
-				}
+				details = fmt.Sprintf("%s\n%s\n\n%d commands", row.Category, row.Subcategory, n)
 			}
 		}
 	}
-	// Width includes each panel's border and padding; keep the complete row inside the terminal.
-	leftWidth := (m.Width - 2) * 42 / 100
-	rightWidth := m.Width - leftWidth - 2
-	contentHeight := max(1, m.Height-9)
-	if len(hits) == 0 {
-		left.WriteString(tr(m.Language, "no_results") + "\n")
+	wrapped := wrapLines(details, contentWidth)
+	card := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(purple).Background(background).Padding(0, 1).Width(contentWidth).MaxWidth(contentWidth).Render(wrapped)
+	return DetailPanel.Width(width).Height(height).MaxHeight(height).Render(SectionTitle.Render("Command Details") + "\n" + card)
+}
+
+func (m Model) detailsContent() string {
+	_, command, ok := m.selectedCommand()
+	if !ok {
+		return "Select a command to see its details."
 	}
-	leftPanel := Panel.Width(max(1, leftWidth-4)).Height(contentHeight).MaxHeight(contentHeight).Render(SectionTitle.Render(tr(m.Language, "commands")) + "\n" + left.String())
-	rightPanel := Panel.Width(max(1, rightWidth-4)).Height(contentHeight).MaxHeight(contentHeight).Render(SectionTitle.Render(tr(m.Language, "details")) + "\n" + right.String())
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, "  ", rightPanel))
-	b.WriteString("\n\n" + Muted.Render(tr(m.Language, "footer")))
-	if m.Status != "" {
-		style := Success
-		status := strings.ToLower(m.Status)
-		if strings.Contains(status, "error") || strings.Contains(status, "failed") || strings.Contains(status, "could not") || strings.Contains(status, "ошибка") || strings.Contains(status, "не удалось") || strings.Contains(status, "ошибкой") {
-			style = Danger
+	var b strings.Builder
+	b.WriteString(Title.Render(highlight(command.Name, m.selectedIndices())) + "\n")
+	var tags []string
+	for _, tag := range command.Tags {
+		tags = append(tags, "#"+tag)
+	}
+	b.WriteString(Muted.Render(strings.Join(tags, "  ")) + "\n\n")
+	b.WriteString(SectionTitle.Render("Description") + "\n" + command.Description + "\n\n")
+	b.WriteString(SectionTitle.Render("Command") + "\n" + CommandBlock.Render(highlightTemplate(command.Command)) + "\n\n")
+	b.WriteString(SectionTitle.Render("Parameters") + "\n")
+	parsed, err := bridge.Parse(command.Command)
+	if err != nil {
+		b.WriteString("None\n")
+		return b.String()
+	}
+	var info templateInfo
+	if json.Unmarshal([]byte(parsed), &info) != nil {
+		b.WriteString("None\n")
+		return b.String()
+	}
+	if len(info.Variables) == 0 {
+		b.WriteString(Muted.Render("None") + "\n")
+	} else {
+		for _, v := range info.Variables {
+			fmt.Fprintf(&b, "• {{%s:%s}}\n", v.Name, v.Default)
 		}
-		b.WriteString("\n" + style.Render(m.Status))
 	}
-	if m.Modal != "" {
-		return Base.Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, Panel.BorderForeground(purple).Render(m.modalView())))
+	if info.Dangerous {
+		b.WriteString("\n" + Danger.Render("[!] DANGEROUS COMMAND"))
 	}
-	return Base.Width(m.Width).MaxWidth(m.Width).Height(m.Height).MaxHeight(m.Height).Render(b.String())
+	return b.String()
+}
+
+func (m Model) selectedIndices() []int {
+	rows := m.matches()
+	if m.Selected < 0 || m.Selected >= len(rows) {
+		return nil
+	}
+	return rows[m.Selected].Indices
+}
+
+func (m Model) renderModal() string {
+	content := wrapLines(m.modalView(), max(1, min(76, m.Width-18)))
+	lines := strings.Split(content, "\n")
+	maxHeight := max(1, m.Height-10)
+	if len(lines) > maxHeight {
+		lines = lines[:maxHeight]
+	}
+	content = strings.Join(lines, "\n")
+	inner := ModalInner.Width(max(1, min(72, m.Width-18))).MaxWidth(max(1, min(72, m.Width-18))).Render(content)
+	outer := ModalOuter.MaxWidth(max(1, m.Width-8)).Render(inner)
+	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, outer))
 }
 
 func (m Model) modalView() string {
 	switch m.Modal {
 	case "help":
-		return strings.Join([]string{tr(m.Language, "help_title"), "", "Up / Down    " + tr(m.Language, "navigate"), tr(m.Language, "type_search"), "Enter        " + tr(m.Language, "copy"), "Ctrl+R       " + tr(m.Language, "run"), "Tab          " + tr(m.Language, "tabs"), "Ctrl+A       " + tr(m.Language, "new"), "Ctrl+E       " + tr(m.Language, "edit"), "Ctrl+H       " + tr(m.Language, "history_key"), "Ctrl+L       " + tr(m.Language, "language_key"), "Ctrl+O       " + tr(m.Language, "about_key"), "Esc          " + tr(m.Language, "close"), "", tr(m.Language, "press_close")}, "\n")
+		return m.helpView.FullHelpView(keys.FullHelp())
 	case "about":
-		return strings.Join([]string{tr(m.Language, "about_title"), "", tr(m.Language, "about_line1"), tr(m.Language, "about_line2"), "", tr(m.Language, "author"), tr(m.Language, "stack"), tr(m.Language, "version"), "", "Ctrl+L  " + tr(m.Language, "language_name"), tr(m.Language, "press_close")}, "\n")
+		return strings.Join([]string{"About Snipbox", "", "A focused home for the commands you use every day.", "Built with Rust and Go.", "Created by Pavel Slepcov.", "", "Press Esc to return."}, "\n")
 	case "history":
-		var b strings.Builder
-		b.WriteString(tr(m.Language, "history_title") + "\n\n")
-		for i, line := range m.history {
-			mark := "  "
-			if i == m.Selected {
-				mark = "> "
-			}
-			fmt.Fprintf(&b, "%s%s\n", mark, truncate(line, 76))
-		}
-		b.WriteString("\n" + tr(m.Language, "history_footer"))
-		return b.String()
+		return "Shell History\n\n" + m.historyView.View() + "\nEnter imports  •  Esc closes"
 	case "form":
-		labels := []string{tr(m.Language, "category"), tr(m.Language, "name"), tr(m.Language, "description"), tr(m.Language, "tags_form"), tr(m.Language, "command")}
+		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command"}
 		var b strings.Builder
 		if m.editIndex < 0 {
-			b.WriteString(tr(m.Language, "new_title") + "\n\n")
+			b.WriteString("New Command\n\n")
 		} else {
-			b.WriteString(tr(m.Language, "edit_title") + "\n\n")
+			b.WriteString("Edit Command\n\n")
 		}
-		for i, label := range labels {
-			marker := "  "
+		for i, l := range labels {
 			if i == m.formField {
-				marker = "> "
+				fmt.Fprintf(&b, "┃ %s: %s\n", l, m.formInput.View())
+			} else if i < len(m.form) {
+				fmt.Fprintf(&b, "  %s: %s\n", l, m.form[i])
 			}
-			fmt.Fprintf(&b, "%s%s: %s\n", marker, label, m.form[i])
 		}
-		b.WriteString("\n" + tr(m.Language, "tab_advances"))
+		b.WriteString("\nTab moves forward  •  Ctrl+S saves  •  Esc cancels")
 		return b.String()
 	case "variables":
 		var b strings.Builder
-		b.WriteString(tr(m.Language, "fill_variables") + "\n\n")
-		for i, name := range m.variables {
-			mark := "  "
+		b.WriteString("Fill Variables\n\n")
+		for i, n := range m.variables {
+			v := m.values[n]
 			if i == m.varField {
-				mark = "> "
+				v = m.variableInput.View()
+				fmt.Fprintf(&b, "┃ {{%s}}: %s\n", n, v)
+			} else {
+				fmt.Fprintf(&b, "  {{%s}}: %s\n", n, v)
 			}
-			fmt.Fprintf(&b, "%s%s: %s\n", mark, name, m.values[name])
 		}
-		b.WriteString("\n" + tr(m.Language, "enter_advances"))
+		b.WriteString("\nEnter moves forward  •  Ctrl+R runs  •  Esc cancels")
 		return b.String()
 	case "confirm":
-		return tr(m.Language, "confirm_title") + "\n\n⚠ " + tr(m.Language, "danger_explainer") + "\n" + tr(m.Language, "review_command") + "\n\n" + m.pending + "\n\n" + tr(m.Language, "confirm_keys")
-	default:
-		return m.Modal
+		return "Confirm Execution\n\n[!] Review this potentially destructive command:\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
 	}
+	return m.Modal
 }
 
-func truncate(value string, width int) string {
-	runes := []rune(value)
-	if len(runes) <= width {
-		return value
-	}
-	return string(runes[:max(0, width-1)]) + "…"
+func fit(style lipgloss.Style, width, height int, value string) string {
+	width = max(1, width)
+	height = max(1, height)
+	return style.Width(width).MaxWidth(width).Height(height).MaxHeight(height).Render(value)
 }
-
+func truncate(value string, width int) string { return ansi.Truncate(value, max(0, width), "…") }
+func wrapLines(value string, width int) string {
+	lines := strings.Split(value, "\n")
+	for i := range lines {
+		lines[i] = ansi.Wrap(lines[i], max(1, width), " ")
+	}
+	return strings.Join(lines, "\n")
+}
 func highlight(value string, positions []int) string {
 	matched := make(map[int]bool, len(positions))
-	for _, position := range positions {
-		matched[position] = true
+	for _, p := range positions {
+		matched[p] = true
 	}
 	var b strings.Builder
 	for i, r := range []rune(value) {
@@ -176,7 +390,6 @@ func highlight(value string, positions []int) string {
 	}
 	return b.String()
 }
-
 func highlightTemplate(value string) string {
 	var b strings.Builder
 	for len(value) > 0 {

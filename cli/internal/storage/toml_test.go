@@ -10,19 +10,34 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
 	commands := defaults()
-	if len(commands) != 25 {
-		t.Fatalf("starter library has %d commands; want 25", len(commands))
+	if len(commands) != 40 {
+		t.Fatalf("starter library has %d commands; want 40", len(commands))
 	}
 	counts := map[string]int{}
+	names := map[string]bool{}
+	subcategories := map[string]map[string]int{}
 	for _, command := range commands {
 		counts[command.Category]++
+		names[command.Name] = true
+		if subcategories[command.Category] == nil {
+			subcategories[command.Category] = map[string]int{}
+		}
+		subcategories[command.Category][command.Subcategory]++
 		if command.Name == "" || command.Description == "" || command.Command == "" || len(command.Tags) == 0 {
 			t.Errorf("incomplete starter command: %+v", command)
 		}
 	}
-	for _, category := range []string{"Git", "Docker", "System", "Network", "Tools"} {
-		if counts[category] != 5 {
-			t.Errorf("%s has %d starter commands; want 5", category, counts[category])
+	for _, name := range []string{"Stop a process", "Inspect file permissions", "Create a ZIP archive", "Inspect listening ports", "Search file contents", "List files recursively", "Restart a service"} {
+		if !names[name] {
+			t.Errorf("starter library is missing %q", name)
+		}
+	}
+	for category, want := range map[string]int{"Git": 12, "PowerShell": 10, "Docker": 6, "Linux/Bash": 6, "Network": 6} {
+		if counts[category] != want {
+			t.Errorf("%s has %d starter commands; want %d", category, counts[category], want)
+		}
+		if len(subcategories[category]) == 0 {
+			t.Errorf("%s has no subcategories", category)
 		}
 	}
 	if err := Save(commands); err != nil {
@@ -37,5 +52,21 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 	}
 	if _, err := os.Stat(Path()); err != nil {
 		t.Fatalf("saved database is unavailable: %v", err)
+	}
+}
+
+func TestMigrationKeepsCustomCommandsAndSeedsNewLibrary(t *testing.T) {
+	commands, changed := migrate([]Command{{Name: "My command", Category: "Tools", Command: "echo custom", Description: "Custom", Tags: []string{"mine"}}})
+	if !changed {
+		t.Fatal("migration should update legacy categories and seed missing starter commands")
+	}
+	if len(commands) != 41 {
+		t.Fatalf("migrated command count = %d, want 41", len(commands))
+	}
+	if commands[0].Category != "Linux/Bash" || commands[0].Subcategory != "Files & Search" {
+		t.Fatalf("legacy command was not migrated: %+v", commands[0])
+	}
+	if commands[0].Command != "echo custom" {
+		t.Fatal("migration must preserve custom command content")
 	}
 }
