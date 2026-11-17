@@ -14,11 +14,11 @@ Fuzzy-find, customize, and run the commands you use every day — from one focus
 
 ## About
 
-Snipbox is a cross-platform command library with a fast Rust search engine and a Go terminal interface. Search snippets as you type, keep the useful ones organized, fill in template values, copy commands, or run them when you need them. Your library lives in a plain TOML file that you own.
+Snipbox is a cross-platform command library with a fast Rust search engine and a polished Go terminal interface. Search snippets as you type, explore a navigable command tree, fill in template values, and copy or run commands from one focused workspace. Your library stays in a plain TOML file on your machine.
 
-The interface is designed around a simple loop: find a command, see what it does, then copy or run it. A welcome dashboard opens on first launch, with five starter collections: **Git**, **PowerShell**, **Docker**, **Linux/Bash**, and **Network**. Browse the library as a searchable category and subcategory tree.
+The interface is designed around a simple loop: find a command, understand what it does, then copy or run it. A welcome dashboard opens on first launch, with five starter collections: **Git**, **PowerShell**, **Docker**, **Linux/Bash**, and **Network**. Browse the library as a searchable category and subcategory tree. The terminal interface and starter library are in English.
 
-Created by **Pavel Slepcov**. The application interface and starter library are in English. Press **Ctrl+O** to open About.
+Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the application.
 
 ## Made for the terminal
 
@@ -39,7 +39,7 @@ Launch the interactive workspace:
 snipbox
 ```
 
-The welcome dashboard shows command, category, and favorite counts. Select a category with the arrow keys and **Enter**, or use **1–5** to jump directly. Choose **0** to browse the complete command tree. Press **w** in the tree to return to the dashboard when the search is empty.
+The welcome dashboard shows command, category, and favorite counts. Select a category with the arrow keys and **Enter**, or use **1–5** to jump directly. Choose **0** to browse the complete command tree. Press **Ctrl+W** in the tree to return to the dashboard when the search is empty.
 
 Open it with a search already in place, list the library, or locate its data file:
 
@@ -77,7 +77,7 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | `Ctrl+H` | Import a command from shell history |
 | `0`–`5` | Choose a dashboard section (`0` opens the complete tree) |
 | `Left` / `Right` or `Space` | Collapse or expand a tree branch |
-| `w` | Return to the welcome dashboard when search is empty |
+| `Ctrl+W` | Return to the welcome dashboard when search is empty |
 | `/` | Open search and browse |
 | `Ctrl+O` | Open About |
 | `?` | Show keyboard shortcuts |
@@ -119,8 +119,6 @@ Build on the target operating system with its native Go and Rust toolchains. Go'
 make build
 ```
 
-The executable is written to `bin/snipbox` (`bin/snipbox.exe` on Windows). Launch it from the repository root:
-
 Launch it from the repository root:
 
 ```powershell
@@ -135,7 +133,7 @@ Launch it from the repository root:
 ./bin/snipbox git
 ```
 
-Inside the interface, press **Ctrl+L** to switch between English and Russian, **Ctrl+O** to open About, and **Esc** to quit. Run the Rust checks separately with:
+Inside the interface, press **Ctrl+O** to open About and **Esc** to quit. Run the Rust checks separately with:
 
 ```sh
 cargo test --manifest-path engine/Cargo.toml
