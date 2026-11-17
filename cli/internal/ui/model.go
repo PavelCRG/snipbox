@@ -52,6 +52,7 @@ type treeRow struct {
 	Subcategory string
 	Index       int
 	Indices     []int
+	MatchCount  int
 }
 
 type keyMap struct {
@@ -66,8 +67,8 @@ func (k keyMap) FullHelp() [][]key.Binding {
 }
 
 var keys = keyMap{
-	Up:          key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move")),
-	Down:        key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move")),
+	Up:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "move")),
+	Down:        key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "move")),
 	PageUp:      key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "scroll details")),
 	PageDown:    key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "scroll details")),
 	Copy:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "copy")),
@@ -222,7 +223,7 @@ func (m Model) treeRows() []treeRow {
 		if count == 0 {
 			continue
 		}
-		rows = append(rows, treeRow{Kind: "category", Category: category, Index: -1})
+		rows = append(rows, treeRow{Kind: "category", Category: category, Index: -1, MatchCount: count})
 		if !m.categoryExpanded[category] && m.Query == "" {
 			continue
 		}
@@ -238,7 +239,7 @@ func (m Model) treeRows() []treeRow {
 			if subCount == 0 {
 				continue
 			}
-			rows = append(rows, treeRow{Kind: "subcategory", Category: category, Subcategory: subcategory, Index: -1})
+			rows = append(rows, treeRow{Kind: "subcategory", Category: category, Subcategory: subcategory, Index: -1, MatchCount: subCount})
 			key := category + "\x00" + subcategory
 			if !m.subcategoryExpanded[key] && m.Query == "" {
 				continue
@@ -502,13 +503,13 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.Mode = "welcome"
 			return m, nil
 		}
-	case "up", "k":
+	case "up":
 		if m.Selected > 0 {
 			m.Selected--
 			m.syncDetails()
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.Selected < len(rows)-1 {
 			m.Selected++
 			m.syncDetails()
@@ -698,7 +699,7 @@ func (m *Model) layout() {
 func (m *Model) syncDetails() {
 	_, _, _, width := panelWidths(m.Width)
 	m.detailsView.Width = width
-	m.detailsView.SetContent(wrapLines(m.detailsContent(), max(1, width-2)))
+	m.detailsView.SetContent(wrapLines(m.detailsContent(), max(1, width)))
 }
 
 func (m *Model) syncHistory() {
@@ -746,14 +747,23 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.history) > 0 {
 				line := m.history[m.Selected]
+				for _, command := range m.Commands {
+					if command.Command == line {
+						m.Modal = ""
+						return m, m.successCmd("[OK] Command already in library")
+					}
+				}
 				category := m.Tab
 				if category == "All" {
 					category = "Linux/Bash"
 				}
-				m.Commands = append(m.Commands, storage.Command{Name: "History - " + truncate(line, 32), Category: category, Subcategory: "Imported History", Description: "Imported from shell history", Tags: []string{"history"}, Command: line})
-				if err := storage.Save(m.Commands); err != nil {
+				commands := append([]storage.Command(nil), m.Commands...)
+				commands = append(commands, storage.Command{Name: "History - " + truncate(line, 32), Category: category, Subcategory: "Imported History", Description: "Imported from shell history", Tags: []string{"history"}, Command: line})
+				if err := storage.Save(commands); err != nil {
 					m.Status = "Could not save command: " + err.Error()
 				} else {
+					m.Commands = commands
+					m.Modal = ""
 					cmd := m.successCmd(string(rune(0x2713)) + " Imported command from shell history")
 					return m, cmd
 				}

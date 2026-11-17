@@ -87,21 +87,18 @@ func gradientText(value string) string {
 }
 
 func (m Model) welcomeView() string {
+	if m.Height < 32 {
+		return m.compactWelcomeView()
+	}
 	var b strings.Builder
 	logo := Title.Render("  ____  _   _ ___ ____  ____   ___  __  __\n / ___|| | | |_ _|  _ \\/ ___| / _ \\|  \\/  |\n \\___ \\| |_| || || |_) \\___ \\| | | | |\\/| |\n  ___) |  _  || ||  __/ ___) | |_| | |  | |\n |____/|_| |_|___|_|   |____/ \\___/|_|  |_|")
 	b.WriteString("\n\n")
 	b.WriteString(logo)
 	b.WriteString("\n\n")
 	b.WriteString(SectionTitle.Render("Terminal Command Orchestrator & Knowledge Base"))
-	favorites := 0
-	for _, c := range m.Commands {
-		if c.Favorite {
-			favorites++
-		}
-	}
-	fmt.Fprintf(&b, "\n\n%d commands   •   %d categories   •   %d favorites\n\n", len(m.Commands), len(storage.Categories()), favorites)
+	fmt.Fprintf(&b, "\n\n%s   •   %d categories   •   %d favorites\n\n", commandCountLabel(len(m.Commands)), len(storage.Categories()), m.favoriteCount())
 	for i, category := range storage.Categories() {
-		line := fmt.Sprintf("%d   %s   %d commands", i+1, category, countCategory(m.Commands, category))
+		line := fmt.Sprintf("%d   %s   %s", i+1, category, commandCountLabel(countCategory(m.Commands, category)))
 		style := Muted
 		if i == m.WelcomeSelected {
 			style = Selected
@@ -117,8 +114,45 @@ func (m Model) welcomeView() string {
 	b.WriteString(Muted.Render("Use Up/Down and Enter, or press a number to open a section.  ? Help  Ctrl+W Dashboard  Esc Quit"))
 	innerWidth := max(1, m.Width-6)
 	content := lipgloss.NewStyle().Width(innerWidth).MaxWidth(innerWidth).Align(lipgloss.Center).Render(b.String())
-	card := ActivePanel.Width(max(1, m.Width-4)).Height(max(1, m.Height-4)).MaxHeight(max(1, m.Height-4)).Align(lipgloss.Center, lipsCenter()).Render(content)
+	cardHeight := min(max(1, m.Height-4), lipgloss.Height(content))
+	card := ActivePanel.Width(max(1, m.Width-4)).Height(cardHeight).Align(lipgloss.Center, lipsCenter()).Render(content)
 	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, card))
+}
+
+func (m Model) compactWelcomeView() string {
+	lines := []string{
+		Title.Render("[ SNIPBOX ]"),
+		SectionTitle.Render("Terminal Command Orchestrator & Knowledge Base"),
+		fmt.Sprintf("%s   •   %d sections   •   %d favorites", commandCountLabel(len(m.Commands)), len(storage.Categories()), m.favoriteCount()),
+		"",
+	}
+	for i, category := range storage.Categories() {
+		style := Muted
+		if i == m.WelcomeSelected {
+			style = Selected
+		}
+		lines = append(lines, style.Render(fmt.Sprintf("%d   %s   %s", i+1, category, commandCountLabel(countCategory(m.Commands, category)))))
+	}
+	style := Muted
+	if m.WelcomeSelected == len(storage.Categories()) {
+		style = Selected
+	}
+	lines = append(lines, style.Render("0   Browse All Tree"), "", Muted.Render("↑/↓ Move  •  Enter Open  •  1–5 Jump  •  ? Help  •  Esc Quit"))
+	width := max(1, m.Width-6)
+	content := lipgloss.NewStyle().Width(width).MaxWidth(width).Align(lipgloss.Center).Render(strings.Join(lines, "\n"))
+	cardHeight := min(max(1, m.Height-4), lipgloss.Height(content))
+	card := ActivePanel.Width(max(1, m.Width-4)).Height(cardHeight).Align(lipgloss.Center, lipgloss.Center).Render(content)
+	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, card))
+}
+
+func (m Model) favoriteCount() int {
+	count := 0
+	for _, command := range m.Commands {
+		if command.Favorite {
+			count++
+		}
+	}
+	return count
 }
 
 func lipsCenter() lipgloss.Position { return lipgloss.Center }
@@ -131,6 +165,13 @@ func countCategory(commands []storage.Command, category string) int {
 		}
 	}
 	return n
+}
+
+func commandCountLabel(count int) string {
+	if count == 1 {
+		return "1 command"
+	}
+	return fmt.Sprintf("%d commands", count)
 }
 
 func helpFooter(model help.Model, width int) string {
@@ -156,6 +197,7 @@ func helpFooter(model help.Model, width int) string {
 
 func (m Model) headerView() string {
 	innerWidth := max(1, m.Width-2)
+	contentWidth := max(1, innerWidth-2)
 	brand := Title.Render("[ SNIPBOX ]")
 	tabs := append([]string{"All"}, storage.Categories()...)
 	var tabParts []string
@@ -164,24 +206,24 @@ func (m Model) headerView() string {
 		if tab == m.Tab {
 			style = CategoryStyle(tab)
 		}
-		tabParts = append(tabParts, style.Render(" "+tab+" "))
+		tabParts = append(tabParts, style.Render(tab))
 	}
 	tabRow := strings.Join(tabParts, " ")
-	top := lipgloss.JoinHorizontal(lipgloss.Top, brand, strings.Repeat(" ", max(1, innerWidth-lipgloss.Width(brand)-lipgloss.Width(tabRow))), tabRow)
-	top = ansi.Truncate(top, innerWidth, "…")
+	top := lipgloss.JoinHorizontal(lipgloss.Top, brand, strings.Repeat(" ", max(1, contentWidth-lipgloss.Width(brand)-lipgloss.Width(tabRow))), tabRow)
+	top = ansi.Truncate(top, contentWidth, "…")
 	search := m.searchInput
 	search.Prompt = "> Search: "
 	count := Selected.Render(fmt.Sprintf("%d / %d", len(m.matches()), len(m.Commands)))
-	search.Width = max(1, innerWidth-lipgloss.Width(search.Prompt)-lipgloss.Width(count)-2)
+	search.Width = max(1, contentWidth-lipgloss.Width(search.Prompt)-lipgloss.Width(count)-2)
 	searchView := search.View()
-	second := lipgloss.JoinHorizontal(lipgloss.Top, searchView, strings.Repeat(" ", max(1, innerWidth-lipgloss.Width(searchView)-lipgloss.Width(count))), count)
-	content := lipgloss.JoinVertical(lipgloss.Left, ansi.Truncate(top, innerWidth, "…"), ansi.Truncate(second, innerWidth, "…"))
-	return Header.Width(innerWidth).MaxWidth(innerWidth).Render(content)
+	second := lipgloss.JoinHorizontal(lipgloss.Top, searchView, strings.Repeat(" ", max(1, contentWidth-lipgloss.Width(searchView)-lipgloss.Width(count))), count)
+	content := lipgloss.JoinVertical(lipgloss.Left, ansi.Truncate(top, contentWidth, "…"), ansi.Truncate(second, contentWidth, "…"))
+	return Header.Width(innerWidth).Render(content)
 }
 
 func panelWidths(width int) (leftOuter, rightOuter, leftContent, rightContent int) {
-	leftOuter = max(1, int(float64(width)*0.42)-2)
-	rightOuter = max(1, width-leftOuter-4)
+	leftOuter = max(1, int(float64(width)*0.42))
+	rightOuter = max(1, width-leftOuter-2)
 	leftContent = max(1, leftOuter-4)
 	rightContent = max(1, rightOuter-4)
 	return
@@ -207,7 +249,7 @@ func (m Model) commandList(width, height int) string {
 				if m.categoryExpanded[row.Category] || m.Query != "" {
 					arrow = "▾"
 				}
-				label = arrow + " " + row.Category + fmt.Sprintf(" (%d)", countCategory(m.Commands, row.Category))
+				label = arrow + " " + row.Category + fmt.Sprintf(" (%d)", row.MatchCount)
 			case "subcategory":
 				key := row.Category + "\x00" + row.Subcategory
 				arrow := "▸"
@@ -265,30 +307,24 @@ func (m Model) commandList(width, height int) string {
 			b.WriteString(ansi.Truncate(row, width, "…") + "\n")
 		}
 	}
-	return ActivePanel.Width(width).Height(height).MaxHeight(height).Render(SectionTitle.Render("Commands") + "\n" + strings.TrimSuffix(b.String(), "\n"))
+	return ActivePanel.Width(width + 2).Height(height).Render(SectionTitle.Render("Commands") + "\n" + strings.TrimSuffix(b.String(), "\n"))
 }
 
 func (m Model) detailsPanel(width, height int) string {
 	details := m.detailsContent()
 	if m.Mode == "tree" {
 		if row, ok := m.selectedTreeRow(); ok && row.Kind != "command" {
-			details = fmt.Sprintf("%s\n\n%d commands\n\nSelect a command to view its details.", row.Category, countCategory(m.Commands, row.Category))
+			details = fmt.Sprintf("%s\n\n%s\n\nSelect a command to view its details.", row.Category, commandCountLabel(row.MatchCount))
 			if row.Kind == "subcategory" {
-				n := 0
-				for _, c := range m.Commands {
-					if c.Category == row.Category && c.Subcategory == row.Subcategory {
-						n++
-					}
-				}
-				details = fmt.Sprintf("%s\n%s\n\n%d commands", row.Category, row.Subcategory, n)
+				details = fmt.Sprintf("%s\n%s\n\n%s", row.Category, row.Subcategory, commandCountLabel(row.MatchCount))
 			}
 		}
 	}
 	viewport := m.detailsView
 	viewport.Width = max(1, width)
 	viewport.Height = max(1, height-1)
-	viewport.SetContent(wrapLines(details, max(1, width-2)))
-	return DetailPanel.Width(width).Height(height).MaxHeight(height).Render(SectionTitle.Render("Command Details") + "\n" + viewport.View())
+	viewport.SetContent(wrapLines(details, max(1, width)))
+	return DetailPanel.Width(width + 2).Height(height).Render(SectionTitle.Render("Command Details") + "\n" + viewport.View())
 }
 
 func (m Model) detailsContent() string {
@@ -347,7 +383,7 @@ func (m Model) renderModal() string {
 	modalWidth := max(1, min(68, m.Width-4))
 	content := wrapLines(m.modalView(), max(1, modalWidth-10))
 	lines := strings.Split(content, "\n")
-	maxHeight := max(1, m.Height-10)
+	maxHeight := max(1, m.Height-6)
 	if len(lines) > maxHeight {
 		lines = lines[:maxHeight]
 	}
@@ -359,9 +395,8 @@ func (m Model) renderModal() string {
 func modalBox(width int, content string) string {
 	width = max(1, width)
 	innerWidth := max(1, width-10)
-	inner := ModalInner.Width(innerWidth).MaxWidth(innerWidth).Render(wrapLines(content, innerWidth))
-	outerWidth := max(1, width-4)
-	return ModalOuter.Width(outerWidth).MaxWidth(outerWidth).Render(inner)
+	inner := ModalInner.Width(max(1, width-6)).Render(wrapLines(content, innerWidth))
+	return ModalOuter.Width(max(1, width-2)).Render(inner)
 }
 
 func (m Model) modalView() string {

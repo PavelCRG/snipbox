@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -180,6 +182,113 @@ func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
 	}
 }
 
+func TestTreeSearchKeepsJAndKAvailableForTyping(t *testing.T) {
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Mode = "tree"
+	for _, char := range []rune{'j', 'k'} {
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}})
+		model = updated.(Model)
+	}
+	if model.Query != "jk" {
+		t.Fatalf("tree search query = %q, want jk", model.Query)
+	}
+}
+
+func TestFilteredTreeCountsOnlyMatchingCommands(t *testing.T) {
+	commands := []storage.Command{
+		{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Create commit", Category: "Git", Subcategory: "Basics & Staging", Command: "git commit"},
+	}
+	model := New(commands, "status")
+	model.Width, model.Height = 100, 30
+	rows := model.treeRows()
+	if len(rows) == 0 || rows[0].Kind != "category" {
+		t.Fatalf("search tree rows = %#v, want a matching category", rows)
+	}
+	list := model.commandList(30, 8)
+	if !strings.Contains(list, "Git (1)") {
+		t.Fatalf("filtered category count missing from tree: %q", list)
+	}
+	if details := model.detailsPanel(60, 8); !strings.Contains(details, "1 command") {
+		t.Fatalf("filtered category count missing from details: %q", details)
+	}
+	model.Selected = 1
+	if details := model.detailsPanel(60, 8); !strings.Contains(details, "1 command") {
+		t.Fatalf("filtered subcategory count missing from details: %q", details)
+	}
+}
+
+func TestSuccessfulHistoryImportClosesModalAndPersistsOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	commands := []storage.Command{{Name: "Existing", Category: "Git", Command: "git log -1"}}
+	if err := storage.Save(commands); err != nil {
+		t.Fatal(err)
+	}
+	model := New(commands, "")
+	model.Modal, model.history = "history", []string{"git status"}
+	model.historyView.Width, model.historyView.Height = 40, 5
+	model.Selected = 0
+	model.syncHistory()
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.Modal != "" || cmd == nil {
+		t.Fatalf("successful import modal/cmd = %q/%v, want closed modal and status timer", model.Modal, cmd)
+	}
+	if len(model.Commands) != 2 || model.Commands[1].Command != "git status" {
+		t.Fatalf("in-memory history imports = %#v, want the existing item plus one import", model.Commands)
+	}
+	commands, err := storage.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, existing := 0, false
+	for _, command := range commands {
+		if command.Name == "History - git status" {
+			imported++
+		}
+		if command.Name == "Existing" {
+			existing = true
+		}
+	}
+	if imported != 1 || !existing {
+		t.Fatalf("persisted import count/existing item = %d/%t", imported, existing)
+	}
+}
+
+func TestFailedHistoryImportDoesNotKeepUnsavedCommandInMemory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(filepath.Join(home, ".snipbox"), []byte("file blocks directory creation"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := New(nil, "")
+	model.Modal, model.history = "history", []string{"git status"}
+	model.Selected = 0
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if len(model.Commands) != 0 || !strings.Contains(model.Status, "Could not save command") {
+		t.Fatalf("failed import commands/status = %#v/%q, want no in-memory command and a save error", model.Commands, model.Status)
+	}
+}
+
+func TestHistoryImportSkipsCommandAlreadyInLibrary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	commands := []storage.Command{{Name: "Working tree status", Category: "Git", Command: "git status"}}
+	model := New(commands, "")
+	model.Modal, model.history = "history", []string{"git status"}
+	model.Selected = 0
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if len(model.Commands) != 1 || model.Modal != "" || !strings.Contains(model.Status, "already in library") || cmd == nil {
+		t.Fatalf("duplicate import state = commands:%d modal:%q status:%q cmd:%v", len(model.Commands), model.Modal, model.Status, cmd)
+	}
+}
+
 func TestViewFitsTerminalBounds(t *testing.T) {
 	for _, size := range [][2]int{{120, 40}, {96, 30}, {80, 24}, {70, 18}} {
 		model := New([]storage.Command{{Name: "Git status", Category: "Git", Description: "Inspect the working tree", Command: "git status --short --branch"}}, "git")
@@ -192,6 +301,41 @@ func TestViewFitsTerminalBounds(t *testing.T) {
 			if got := lipgloss.Width(line); got > size[0] {
 				t.Errorf("View() line %d width = %d at %dx%d", lineNo+1, got, size[0], size[1])
 			}
+		}
+	}
+}
+
+func TestBrowsePanelsFillTerminalWidthWithoutClipping(t *testing.T) {
+	for _, width := range []int{70, 80, 96, 120} {
+		model := New([]storage.Command{{Name: "Git status", Category: "Git", Description: "Inspect the working tree", Command: "git status --short --branch"}}, "git")
+		model.Width = width
+		leftWidth, rightWidth, leftContent, rightContent := panelWidths(width)
+		header := model.headerView()
+		if got := lipgloss.Width(header); got != width {
+			t.Errorf("header width at %d columns = %d, want %d", width, got, width)
+		}
+		if !strings.Contains(header, "Network") {
+			t.Errorf("header at %d columns clips the final tab: %q", width, header)
+		}
+		if !strings.Contains(header, "1 / 1") {
+			t.Errorf("header at %d columns clips the result counter: %q", width, header)
+		}
+		left := model.commandList(leftContent, 8)
+		right := model.detailsPanel(rightContent, 8)
+		if got := lipgloss.Width(left); got != leftWidth {
+			t.Errorf("left panel width at %d columns = %d, want %d", width, got, leftWidth)
+		}
+		if got := lipgloss.Width(right); got != rightWidth {
+			t.Errorf("right panel width at %d columns = %d, want %d", width, got, rightWidth)
+		}
+		if got := lipgloss.Width(left) + 2 + lipgloss.Width(right); got != width {
+			t.Errorf("panels and gutter at %d columns use %d columns", width, got)
+		}
+		if got := lipgloss.Height(left); got != 10 {
+			t.Errorf("left panel height at %d columns = %d, want 10 including borders", width, got)
+		}
+		if got := lipgloss.Height(right); got != 10 {
+			t.Errorf("right panel height at %d columns = %d, want 10 including borders", width, got)
 		}
 	}
 }
@@ -210,6 +354,30 @@ func TestSplashFitsTerminalBounds(t *testing.T) {
 		for line, content := range strings.Split(view, "\n") {
 			if got := lipgloss.Width(content); got > size[0] {
 				t.Errorf("splash line %d width = %d at %dx%d", line+1, got, size[0], size[1])
+			}
+		}
+	}
+}
+
+func TestWelcomeDashboardKeepsAllSectionsAndControlsVisibleAtMinimumSize(t *testing.T) {
+	for _, size := range [][2]int{{70, 18}, {70, 24}, {70, 30}, {96, 30}, {120, 40}} {
+		model := New(nil, "")
+		model.Mode, model.Width, model.Height = "welcome", size[0], size[1]
+		view := model.View()
+		for _, text := range []string{"Git", "PowerShell", "Docker", "Linux/Bash", "Network", "Browse All Tree", "Esc Quit"} {
+			if !strings.Contains(view, text) {
+				t.Errorf("welcome dashboard at %dx%d is missing %q", size[0], size[1], text)
+			}
+		}
+		if size[1] < 32 && !strings.Contains(view, "1–5 Jump") {
+			t.Errorf("compact welcome dashboard at %dx%d omits numeric navigation", size[0], size[1])
+		}
+		if got := lipgloss.Height(view); got > size[1] {
+			t.Errorf("welcome dashboard height at %dx%d = %d", size[0], size[1], got)
+		}
+		for lineNo, line := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(line); got > size[0] {
+				t.Errorf("welcome dashboard line %d at %dx%d is %d columns", lineNo+1, size[0], size[1], got)
 			}
 		}
 	}
@@ -244,8 +412,8 @@ func TestTreeSelectionUsesItsOwnSearchHighlightsAndFitsPanelRows(t *testing.T) {
 	if got := model.selectedIndices(); len(got) == 0 {
 		t.Fatal("selected tree command should retain the match indices for highlighting")
 	}
-	if got := lipgloss.Height(model.commandList(64, 5)); got > 5 {
-		t.Fatalf("command panel height = %d, want at most 5", got)
+	if got := lipgloss.Height(model.commandList(64, 5)); got != 7 {
+		t.Fatalf("command panel height = %d, want 7 including borders", got)
 	}
 }
 
@@ -274,8 +442,22 @@ func TestModalsFitTerminalBounds(t *testing.T) {
 
 func TestModalWidthIsCappedAt68Columns(t *testing.T) {
 	box := modalBox(68, strings.Repeat("Long modal content ", 12))
-	if width := lipgloss.Width(box); width > 68 {
-		t.Fatalf("modal box width = %d, want at most 68", width)
+	if width := lipgloss.Width(box); width != 68 {
+		t.Fatalf("modal box width = %d, want 68 with intact borders", width)
+	}
+}
+
+func TestFormModalKeepsItsActionsVisibleAtMinimumTerminalSize(t *testing.T) {
+	model := New(nil, "")
+	model.Width, model.Height, model.Modal = 70, 18, "form"
+	model.form = []string{"Git", "General", "New branch", "Create a branch", "git", "git switch -c topic"}
+	model.prepareFormInput()
+	view := model.View()
+	if !strings.Contains(view, "Esc cancels") || !strings.Contains(view, "Ctrl+S saves") {
+		t.Fatalf("minimum-size form modal clipped its actions: %q", view)
+	}
+	if got := lipgloss.Height(view); got > model.Height {
+		t.Fatalf("form modal height = %d at %d rows", got, model.Height)
 	}
 }
 
