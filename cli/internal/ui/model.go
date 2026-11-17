@@ -49,6 +49,7 @@ type Model struct {
 	Tab      string
 	Status   string
 	Modal    string
+	Language language
 	Width    int
 	Height   int
 
@@ -63,7 +64,7 @@ type Model struct {
 }
 
 func New(commands []storage.Command, query string) Model {
-	return Model{Commands: commands, Query: query, Tab: "Git", editIndex: -1}
+	return Model{Commands: commands, Query: query, Tab: "Git", Language: english, editIndex: -1}
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -102,9 +103,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width, m.Height = v.Width, v.Height
 	case runMsg:
 		if v.err != nil {
-			m.Status = "Command failed: " + v.err.Error() + " " + truncate(strings.TrimSpace(v.output), 100)
+			m.Status = tr(m.Language, "failed") + v.err.Error() + " " + truncate(strings.TrimSpace(v.output), 100)
 		} else {
-			m.Status = "✓ Command completed: " + truncate(strings.TrimSpace(v.output), 100)
+			m.Status = tr(m.Language, "completed") + ": " + truncate(strings.TrimSpace(v.output), 100)
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -133,13 +134,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Selected = 0
 		case "?":
 			m.Modal = "help"
+		case "ctrl+l":
+			if m.Language == english {
+				m.Language = russian
+			} else {
+				m.Language = english
+			}
+		case "ctrl+o":
+			m.Modal = "about"
 		case "enter":
 			_, command, ok := m.selectedCommand()
 			if ok {
 				if err := clipboard.WriteAll(command.Command); err != nil {
-					m.Status = "Clipboard error: " + err.Error()
+					m.Status = tr(m.Language, "clipboard_error") + err.Error()
 				} else {
-					m.Status = "✓ Copied to clipboard!"
+					m.Status = tr(m.Language, "copied")
 				}
 			}
 		case "ctrl+r":
@@ -160,7 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+h":
 			m.history = history.Recent()
 			if len(m.history) == 0 {
-				m.Status = "No shell history found"
+				m.Status = tr(m.Language, "no_history")
 			} else {
 				m.Selected = 0
 				m.Modal = "history"
@@ -182,7 +191,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.Modal {
-	case "help":
+	case "help", "about":
 		if key.String() == "esc" || key.String() == "?" || key.String() == "enter" {
 			m.Modal = ""
 		}
@@ -203,9 +212,9 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 				line := m.history[m.Selected]
 				m.Commands = append(m.Commands, storage.Command{Name: "History · " + truncate(line, 32), Category: "Tools", Description: "Imported from shell history", Tags: []string{"history"}, Command: line})
 				if err := storage.Save(m.Commands); err != nil {
-					m.Status = "Could not save command: " + err.Error()
+					m.Status = tr(m.Language, "save_error") + err.Error()
 				} else {
-					m.Status = "✓ Imported command from shell history"
+					m.Status = tr(m.Language, "imported")
 				}
 				m.Modal = ""
 			}
@@ -261,7 +270,7 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "esc", "n":
 			m.Modal = ""
-			m.Status = "Command canceled"
+			m.Status = tr(m.Language, "canceled")
 		case "y", "enter":
 			cmd := m.execute(m.pending)
 			return m, cmd
@@ -272,7 +281,7 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) saveForm() {
 	if strings.TrimSpace(m.form[1]) == "" || strings.TrimSpace(m.form[4]) == "" {
-		m.Status = "Name and command are required"
+		m.Status = tr(m.Language, "required")
 		return
 	}
 	command := storage.Command{Name: strings.TrimSpace(m.form[1]), Category: strings.TrimSpace(m.form[0]), Description: strings.TrimSpace(m.form[2]), Command: strings.TrimSpace(m.form[4])}
@@ -290,12 +299,12 @@ func (m *Model) saveForm() {
 		commands = append(commands, command)
 	}
 	if err := storage.Save(commands); err != nil {
-		m.Status = "Could not save command: " + err.Error()
+		m.Status = tr(m.Language, "save_error") + err.Error()
 		return
 	}
 	m.Commands = commands
 	m.Modal = ""
-	m.Status = "✓ Command saved"
+	m.Status = tr(m.Language, "saved")
 }
 
 func (m *Model) beginRun() tea.Cmd {
@@ -309,7 +318,7 @@ func (m *Model) beginRun() tea.Cmd {
 		err = json.Unmarshal([]byte(parsed), &info)
 	}
 	if err != nil {
-		m.Status = "Could not parse command template: " + err.Error()
+		m.Status = tr(m.Language, "parse_error") + err.Error()
 		return nil
 	}
 	if len(info.Variables) > 0 {
@@ -334,24 +343,24 @@ func (m *Model) finishVariables() tea.Cmd {
 	}
 	rendered, err := bridge.Render(command.Command, m.values)
 	if err != nil {
-		m.Status = "Could not render command: " + err.Error()
+		m.Status = tr(m.Language, "render_error") + err.Error()
 		m.Modal = ""
 		return nil
 	}
 	if err = json.Unmarshal([]byte(rendered), &m.pending); err != nil {
-		m.Status = "Could not decode rendered command"
+		m.Status = tr(m.Language, "decode_error")
 		m.Modal = ""
 		return nil
 	}
 	var info templateInfo
 	parsed, err := bridge.Parse(m.pending)
 	if err != nil {
-		m.Status = "Could not check command safety: " + err.Error()
+		m.Status = tr(m.Language, "safety_error") + err.Error()
 		m.Modal = ""
 		return nil
 	}
 	if err = json.Unmarshal([]byte(parsed), &info); err != nil {
-		m.Status = "Could not check command safety: " + err.Error()
+		m.Status = tr(m.Language, "safety_error") + err.Error()
 		m.Modal = ""
 		return nil
 	}
@@ -371,7 +380,7 @@ func (m *Model) execute(command string) tea.Cmd {
 	if index, _, ok := m.selectedCommand(); ok {
 		m.Commands[index].Usage++
 		if err := storage.Save(m.Commands); err != nil {
-			m.Status = "Could not save usage count: " + err.Error()
+			m.Status = tr(m.Language, "usage_error") + err.Error()
 		}
 	}
 	m.Modal = ""

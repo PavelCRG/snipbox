@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Snipbox
+# Snipbox
 
 ### Your commands, ready when you are.
 
@@ -17,6 +17,8 @@ Fuzzy-find, customize, and run the commands you use every day — from one focus
 Snipbox is a cross-platform command library with a fast Rust search engine and a Go terminal interface. Search snippets as you type, keep the useful ones organized, fill in template values, copy commands, or run them when you need them. Your library lives in a plain TOML file that you own.
 
 The interface is designed around a simple loop: find a command, see what it does, then copy or run it. Five starter collections give a new installation something useful from the first launch: **Git**, **Docker**, **System**, **Network**, and **Tools**.
+
+Created by **Pavel Slepcov**. The application interface is available in English and Russian; press **Ctrl+L** to switch languages and **Ctrl+O** to open About.
 
 ## Made for the terminal
 
@@ -72,6 +74,8 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | `Ctrl+A` | Create a command |
 | `Ctrl+E` | Edit the selected command |
 | `Ctrl+H` | Import a command from shell history |
+| `Ctrl+L` | Switch between English and Russian |
+| `Ctrl+O` | Open About |
 | `?` | Show keyboard shortcuts |
 | `Esc` | Close a dialog or quit |
 
@@ -111,7 +115,23 @@ Build on the target operating system with its native Go and Rust toolchains. Go'
 make build
 ```
 
-The executable is written to `bin/snipbox` (`bin/snipbox.exe` on Windows). Run the Rust checks separately with:
+The executable is written to `bin/snipbox` (`bin/snipbox.exe` on Windows). Launch it from the repository root:
+
+Launch it from the repository root:
+
+```powershell
+# Windows
+.\bin\snipbox.exe
+.\bin\snipbox.exe git
+```
+
+```sh
+# Linux / macOS
+./bin/snipbox
+./bin/snipbox git
+```
+
+Inside the interface, press **Ctrl+L** to switch between English and Russian, **Ctrl+O** to open About, and **Esc** to quit. Run the Rust checks separately with:
 
 ```sh
 cargo test --manifest-path engine/Cargo.toml

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/snipbox/cli/internal/storage"
 )
@@ -54,6 +55,45 @@ func TestViewRequestsResizeForVerySmallTerminal(t *testing.T) {
 	model.Width, model.Height = 60, 20
 	if view := model.View(); !strings.Contains(view, "Resize the terminal") {
 		t.Fatalf("small terminal view should explain how to recover: %q", view)
+	}
+}
+
+func TestLanguageToggleAndAboutModal(t *testing.T) {
+	model := New(nil, "")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	model = updated.(Model)
+	if model.Language != russian {
+		t.Fatalf("language after Ctrl+L = %q, want Russian", model.Language)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	model = updated.(Model)
+	if model.Modal != "about" || !strings.Contains(model.modalView(), "Автор: Pavel Slepcov") {
+		t.Fatalf("Russian About modal is missing author details: %q", model.modalView())
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	if model.Modal != "" {
+		t.Fatal("Esc should close the About modal")
+	}
+}
+
+func TestRussianViewUsesRussianLabelsAndNoLightningBrand(t *testing.T) {
+	model := New(nil, "")
+	model.Language, model.Width, model.Height = russian, 100, 30
+	view := model.View()
+	if !strings.Contains(view, "SNIPBOX") || !strings.Contains(view, "Поиск") || !strings.Contains(view, "Команды") || !strings.Contains(view, "Все") {
+		t.Fatalf("Russian interface labels are missing: %q", view)
+	}
+	if strings.Contains(view, "⚡") {
+		t.Fatal("lightning logo should not appear in the interface")
+	}
+}
+
+func TestFormLabelsFollowSelectedLanguage(t *testing.T) {
+	model := New(nil, "")
+	model.Language, model.Modal, model.form = russian, "form", []string{"Git", "name", "description", "tag", "command"}
+	if view := model.modalView(); !strings.Contains(view, "Новая команда") || !strings.Contains(view, "Категория") || !strings.Contains(view, "Описание") {
+		t.Fatalf("form labels are not translated: %q", view)
 	}
 }
 
