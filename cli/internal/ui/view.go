@@ -22,9 +22,6 @@ func (m Model) View() string {
 	if m.Modal != "" {
 		return m.renderModal()
 	}
-	if m.Mode == "welcome" {
-		return m.welcomeView()
-	}
 	return m.browseView()
 }
 
@@ -56,85 +53,6 @@ func (m Model) browseView() string {
 		view = lipgloss.JoinVertical(lipgloss.Left, view, status)
 	}
 	return fit(Base, m.Width, m.Height, view)
-}
-
-func (m Model) welcomeView() string {
-	if m.Height < 32 {
-		return m.compactWelcomeView()
-	}
-	var b strings.Builder
-	b.WriteString(Title.Render("SNIPBOX"))
-	b.WriteString("\n\n")
-	b.WriteString(SectionTitle.Render("Your personal command library"))
-	fmt.Fprintf(&b, "\n\n%s   •   %d categories   •   %d favorites\n\n", commandCountLabel(len(m.Commands)), len(storage.Categories()), m.favoriteCount())
-	for i, category := range storage.Categories() {
-		line := fmt.Sprintf("%d   %s   %s", i+1, category, commandCountLabel(countCategory(m.Commands, category)))
-		style := Muted
-		if i == m.WelcomeSelected {
-			style = Selected
-		}
-		fmt.Fprintf(&b, "  %s\n", style.Render(line))
-	}
-	allIndex := len(storage.Categories())
-	style := Muted
-	if m.WelcomeSelected == allIndex {
-		style = Selected
-	}
-	fmt.Fprintf(&b, "  %s\n\n", style.Render("0   Browse All Tree"))
-	b.WriteString(Muted.Render("Use Up/Down and Enter, or press a number to open a section.  ? Help  Ctrl+W Dashboard  Esc Quit"))
-	innerWidth := max(1, m.Width-6)
-	content := lipgloss.NewStyle().Width(innerWidth).MaxWidth(innerWidth).Align(lipgloss.Center).Render(b.String())
-	cardHeight := min(max(1, m.Height-4), lipgloss.Height(content))
-	card := ActivePanel.Width(max(1, m.Width-4)).Height(cardHeight).Align(lipgloss.Center, lipsCenter()).Render(content)
-	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, card))
-}
-
-func (m Model) compactWelcomeView() string {
-	lines := []string{
-		Title.Render("SNIPBOX"),
-		SectionTitle.Render("Your personal command library"),
-		fmt.Sprintf("%s   •   %d sections   •   %d favorites", commandCountLabel(len(m.Commands)), len(storage.Categories()), m.favoriteCount()),
-		"",
-	}
-	for i, category := range storage.Categories() {
-		style := Muted
-		if i == m.WelcomeSelected {
-			style = Selected
-		}
-		lines = append(lines, style.Render(fmt.Sprintf("%d   %s   %s", i+1, category, commandCountLabel(countCategory(m.Commands, category)))))
-	}
-	style := Muted
-	if m.WelcomeSelected == len(storage.Categories()) {
-		style = Selected
-	}
-	lines = append(lines, style.Render("0   Browse All Tree"), "", Muted.Render("↑/↓ Move  •  Enter Open  •  1–5 Jump  •  ? Help  •  Esc Quit"))
-	width := max(1, m.Width-6)
-	content := lipgloss.NewStyle().Width(width).MaxWidth(width).Align(lipgloss.Center).Render(strings.Join(lines, "\n"))
-	cardHeight := min(max(1, m.Height-4), lipgloss.Height(content))
-	card := ActivePanel.Width(max(1, m.Width-4)).Height(cardHeight).Align(lipgloss.Center, lipgloss.Center).Render(content)
-	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, card))
-}
-
-func (m Model) favoriteCount() int {
-	count := 0
-	for _, command := range m.Commands {
-		if command.Favorite {
-			count++
-		}
-	}
-	return count
-}
-
-func lipsCenter() lipgloss.Position { return lipgloss.Center }
-
-func countCategory(commands []storage.Command, category string) int {
-	n := 0
-	for _, c := range commands {
-		if c.Category == category {
-			n++
-		}
-	}
-	return n
 }
 
 func commandCountLabel(count int) string {

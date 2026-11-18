@@ -3,7 +3,6 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -52,14 +51,14 @@ type treeRow struct {
 }
 
 type keyMap struct {
-	Up, Down, PageUp, PageDown, Copy, Run, NextTab, PreviousTab, New, Edit, Favorite, Delete, History, Help, About, Welcome, Quit key.Binding
+	Up, Down, PageUp, PageDown, Copy, Run, NextTab, PreviousTab, New, Edit, Favorite, Delete, History, Help, About, Quit key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Copy, k.Run, k.NextTab, k.PreviousTab, k.New, k.Edit, k.Favorite, k.Delete, k.History, k.About, k.Help, k.Welcome, k.Quit}
+	return []key.Binding{k.Copy, k.Run, k.NextTab, k.PreviousTab, k.New, k.Edit, k.Favorite, k.Delete, k.History, k.About, k.Help, k.Quit}
 }
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Copy, k.Run, k.NextTab, k.PreviousTab}, {k.New, k.Edit, k.Favorite, k.Delete, k.History, k.Help, k.About, k.Welcome, k.Quit}}
+	return [][]key.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Copy, k.Run, k.NextTab, k.PreviousTab}, {k.New, k.Edit, k.Favorite, k.Delete, k.History, k.Help, k.About, k.Quit}}
 }
 
 var keys = keyMap{
@@ -78,7 +77,6 @@ var keys = keyMap{
 	History:     key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "history")),
 	Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	About:       key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "about")),
-	Welcome:     key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "welcome")),
 	Quit:        key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "quit")),
 }
 
@@ -90,16 +88,15 @@ type cappedBuffer struct {
 var terminalEscape = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))`)
 
 type Model struct {
-	Commands        []storage.Command
-	Query           string
-	Selected        int
-	Tab             string
-	Mode            string
-	WelcomeSelected int
-	Status          string
-	Modal           string
-	Width           int
-	Height          int
+	Commands []storage.Command
+	Query    string
+	Selected int
+	Tab      string
+	Mode     string
+	Status   string
+	Modal    string
+	Width    int
+	Height   int
 
 	searchInput   textinput.Model
 	formInput     textinput.Model
@@ -131,10 +128,11 @@ func New(commands []storage.Command, query string) Model {
 	search.PromptStyle = Selected
 	search.TextStyle = Base
 	search.Cursor.Style = Selected
-	mode := "welcome"
-	tab := "All"
+	mode := "browse"
+	tab := "Git"
 	if query != "" {
 		mode = "tree"
+		tab = "All"
 	}
 	expanded := make(map[string]bool)
 	for _, category := range storage.Categories() {
@@ -253,19 +251,6 @@ func (m Model) selectedTreeRow() (treeRow, bool) {
 	return rows[m.Selected], true
 }
 
-func (m *Model) enterWelcomeSelection(index int) {
-	m.WelcomeSelected = index
-	m.Selected = 0
-	if index == len(storage.Categories()) {
-		m.Mode, m.Tab = "tree", "All"
-	} else {
-		category := storage.Categories()[index]
-		m.Mode, m.Tab = "tree", category
-		m.categoryExpanded[category] = true
-	}
-	m.syncDetails()
-}
-
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -291,9 +276,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.Modal != "" {
 			return m.updateModal(v)
-		}
-		if m.Mode == "welcome" {
-			return m.updateWelcome(v)
 		}
 		if m.Mode == "tree" {
 			return m.updateTree(v)
@@ -331,13 +313,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab", "shift+tab":
 			m.cycleTab(v.String() == "shift+tab")
 			return m, nil
-		case "w":
-			// Keep ordinary letters available to live search.
-		case "ctrl+w":
-			if m.Query == "" {
-				m.Mode = "welcome"
-				return m, nil
-			}
 		case "?":
 			if m.Query == "" {
 				m.Modal = "help"
@@ -420,37 +395,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateWelcome(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	last := len(storage.Categories())
-	switch key.String() {
-	case "esc", "ctrl+c":
-		return m, tea.Quit
-	case "up", "k", "left":
-		m.WelcomeSelected = (m.WelcomeSelected + last) % (last + 1)
-	case "down", "j", "right":
-		m.WelcomeSelected = (m.WelcomeSelected + 1) % (last + 1)
-	case "enter":
-		m.enterWelcomeSelection(m.WelcomeSelected)
-	case "0":
-		m.enterWelcomeSelection(last)
-	case "?":
-		m.Modal = "help"
-	case "ctrl+o":
-		m.Modal = "about"
-	case "/":
-		m.Mode, m.Tab = "browse", "All"
-		m.searchInput.Focus()
-	default:
-		for i := 0; i < last; i++ {
-			if key.String() == fmt.Sprint(i+1) {
-				m.enterWelcomeSelection(i)
-				break
-			}
-		}
-	}
-	return m, nil
-}
-
 func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	rows := m.treeRows()
 	if len(rows) == 0 {
@@ -474,11 +418,6 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "ctrl+c":
 		return m, tea.Quit
-	case "ctrl+w":
-		if m.Query == "" {
-			m.Mode = "welcome"
-			return m, nil
-		}
 	case "up":
 		if m.Selected > 0 {
 			m.Selected--

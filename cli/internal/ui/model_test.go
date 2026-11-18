@@ -14,9 +14,9 @@ import (
 	"github.com/snipbox/cli/internal/storage"
 )
 
-func TestNewStartsAtWelcomeWithoutQuery(t *testing.T) {
-	if model := New(nil, ""); model.Mode != "welcome" {
-		t.Fatalf("empty query mode = %q, want welcome", model.Mode)
+func TestNewStartsInGitCommandBrowser(t *testing.T) {
+	if model := New(nil, ""); model.Mode != "browse" || model.Tab != "Git" {
+		t.Fatalf("empty query mode/tab = %q/%q, want browse/Git", model.Mode, model.Tab)
 	}
 	if model := New(nil, "git"); model.Mode != "tree" {
 		t.Fatalf("query mode = %q, want tree", model.Mode)
@@ -84,17 +84,10 @@ func TestControlDRequiresConfirmationBeforeDeleting(t *testing.T) {
 	}
 }
 
-func TestWelcomeSelectionAndTreeExpansion(t *testing.T) {
+func TestAllTreeCanExpandAndCollapseCategories(t *testing.T) {
 	commands := []storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}, {Name: "Branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git branch"}}
 	model := New(commands, "")
-	model.enterWelcomeSelection(0)
-	if model.Mode != "tree" || model.Tab != "Git" || !model.categoryExpanded["Git"] {
-		t.Fatalf("welcome category selection = mode %q tab %q", model.Mode, model.Tab)
-	}
-	model.enterWelcomeSelection(len(storage.Categories()))
-	if model.Mode != "tree" {
-		t.Fatalf("all-tree selection mode = %q", model.Mode)
-	}
+	model.Mode, model.Tab = "tree", "All"
 	rows := model.treeRows()
 	if len(rows) == 0 || rows[0].Kind != "category" {
 		t.Fatalf("tree starts with unexpected rows: %#v", rows)
@@ -118,7 +111,7 @@ func TestCategoryTabDoesNotRepeatItsNameInTheTreeAndDetails(t *testing.T) {
 		{Name: "Branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git branch"},
 	}
 	model := New(commands, "")
-	model.enterWelcomeSelection(0)
+	model.Mode, model.Tab = "tree", "Git"
 	rows := model.treeRows()
 	if len(rows) == 0 || rows[0].Kind != "subcategory" {
 		t.Fatalf("Git tab should start at subcategories instead of repeating the tab name: %#v", rows)
@@ -131,7 +124,7 @@ func TestCategoryTabDoesNotRepeatItsNameInTheTreeAndDetails(t *testing.T) {
 func TestTreeEnterStartsCopyVariableFlowAndRunRemainsSeparate(t *testing.T) {
 	commands := []storage.Command{{Name: "Checkout branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch {{branch:main}}"}}
 	model := New(commands, "")
-	model.enterWelcomeSelection(0)
+	model.Mode, model.Tab = "tree", "Git"
 	model.subcategoryExpanded["Git\x00Branches & Merging"] = true
 	rows := model.treeRows()
 	for i, row := range rows {
@@ -154,7 +147,7 @@ func TestTreeEnterStartsCopyVariableFlowAndRunRemainsSeparate(t *testing.T) {
 func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
 	commands := []storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status", Usage: 14}}
 	model := New(commands, "")
-	model.enterWelcomeSelection(0)
+	model.Mode, model.Tab = "tree", "Git"
 	model.subcategoryExpanded["Git\x00Basics & Staging"] = true
 	for i, row := range model.treeRows() {
 		if row.Kind == "command" {
@@ -165,11 +158,11 @@ func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
 	if rendered := model.commandList(64, 8); !strings.Contains(rendered, "14x") {
 		t.Fatalf("tree command row omitted usage count: %q", rendered)
 	}
-	if got := len(keys.ShortHelp()); got != 13 {
-		t.Fatalf("short help has %d bindings, want 13", got)
+	if got := len(keys.ShortHelp()); got != 12 {
+		t.Fatalf("short help has %d bindings, want 12", got)
 	}
 	helpView := helpFooter(help.New(), 44)
-	for _, desc := range []string{"copy", "run", "tabs", "previous tab", "new", "edit", "favorite", "delete", "history", "about", "help", "welcome", "quit"} {
+	for _, desc := range []string{"copy", "run", "tabs", "previous tab", "new", "edit", "favorite", "delete", "history", "about", "help", "quit"} {
 		if !strings.Contains(helpView, desc) {
 			t.Errorf("responsive footer omitted %q: %q", desc, helpView)
 		}
@@ -339,33 +332,30 @@ func TestBrowsePanelsFillTerminalWidthWithoutClipping(t *testing.T) {
 	}
 }
 
-func TestWelcomeDashboardKeepsAllSectionsAndControlsVisibleAtMinimumSize(t *testing.T) {
+func TestGitCommandBrowserFitsMinimumTerminalSizeWithoutDashboard(t *testing.T) {
+	commands := []storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Description: "Show the current branch and working tree.", Command: "git status"}}
 	for _, size := range [][2]int{{70, 18}, {70, 24}, {70, 30}, {96, 30}, {120, 40}} {
-		model := New(nil, "")
-		model.Mode, model.Width, model.Height = "welcome", size[0], size[1]
+		model := New(commands, "")
+		model.Width, model.Height = size[0], size[1]
 		view := model.View()
-		if strings.Contains(view, "____") {
-			t.Errorf("welcome dashboard at %dx%d should use a plain wordmark, not ASCII logo art", size[0], size[1])
-		}
-		for _, text := range []string{"Git", "PowerShell", "Docker", "Linux/Bash", "Network", "Browse All Tree", "Esc Quit"} {
+		for _, text := range []string{"SNIPBOX", "Commands", "Command Details", "Working tree status"} {
 			if !strings.Contains(view, text) {
-				t.Errorf("welcome dashboard at %dx%d is missing %q", size[0], size[1], text)
+				t.Errorf("Git command browser at %dx%d is missing %q", size[0], size[1], text)
 			}
 		}
-		if size[1] < 32 && !strings.Contains(view, "1–5 Jump") {
-			t.Errorf("compact welcome dashboard at %dx%d omits numeric navigation", size[0], size[1])
+		if strings.Contains(view, "Browse All Tree") || strings.Contains(view, "favorites") {
+			t.Errorf("Git command browser at %dx%d includes dashboard-only content", size[0], size[1])
 		}
 		if got := lipgloss.Height(view); got > size[1] {
-			t.Errorf("welcome dashboard height at %dx%d = %d", size[0], size[1], got)
+			t.Errorf("Git command browser height at %dx%d = %d", size[0], size[1], got)
 		}
 		for lineNo, line := range strings.Split(view, "\n") {
 			if got := lipgloss.Width(line); got > size[0] {
-				t.Errorf("welcome dashboard line %d at %dx%d is %d columns", lineNo+1, size[0], size[1], got)
+				t.Errorf("Git command browser line %d at %dx%d is %d columns", lineNo+1, size[0], size[1], got)
 			}
 		}
 	}
 }
-
 func TestDetailsPanelUsesScrollableViewport(t *testing.T) {
 	description := strings.Join([]string{"detail line"}, "\n")
 	for i := 0; i < 30; i++ {
@@ -485,9 +475,6 @@ func TestHelpAndAboutUseEnglishText(t *testing.T) {
 		if !strings.Contains(view, text) {
 			t.Errorf("About is missing %q: %q", text, view)
 		}
-	}
-	if strings.Contains(view, "personal command library") {
-		t.Error("About should not repeat the welcome screen tagline")
 	}
 	if view := ansi.Strip(model.View()); !strings.Contains(view, "Press Esc to close.") {
 		t.Errorf("About should keep its close hint visible at the minimum terminal size: %q", view)

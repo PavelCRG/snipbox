@@ -16,7 +16,7 @@ Fuzzy-find, customize, and run the commands you use every day — from one focus
 
 Snipbox is a cross-platform command library with a fast Rust search engine and a polished Go terminal interface. Search snippets as you type, explore a navigable command tree, fill in template values, and copy or run commands from one focused workspace. Your library stays in a plain TOML file on your machine.
 
-The interface is designed around a simple loop: find a command, understand what it does, then copy or run it. A welcome dashboard opens on first launch, with five starter collections: **Git**, **PowerShell**, **Docker**, **Linux/Bash**, and **Network**. Browse the library as a searchable category and subcategory tree. The terminal interface and starter library are in English.
+The interface is designed around a simple loop: find a command, understand what it does, then copy or run it. Snipbox opens directly to the **Git** collection; use the category tabs to switch collections or browse the searchable command tree. The terminal interface and starter library are in English.
 
 Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the application.
 
@@ -24,7 +24,7 @@ Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the applicat
 
 - **Live fuzzy search** across command names, descriptions, tags, and command text.
 - **A two-panel workspace** with category tabs, favorites, usage counts, highlighted matches, and command details.
-- **A welcome dashboard and expandable tree** for browsing categories and subcategories.
+- **Expandable command tree** for browsing categories and subcategories.
 - **Reusable templates** with editable prompts and defaults, such as `{{branch:feature/new-work}}`.
 - **Create and edit snippets** in the interface; changes are saved immediately to your local TOML library.
 - **Copy or run commands** with captured output and usage tracking. Destructive patterns require an explicit confirmation.
@@ -39,7 +39,7 @@ Launch the interactive workspace:
 snipbox
 ```
 
-The welcome dashboard shows command, category, and favorite counts. Select a category with the arrow keys and **Enter**, or use **1–5** to jump directly. Choose **0** to browse the complete command tree. Press **Ctrl+W** in the tree to return to the dashboard when the search is empty.
+Snipbox opens directly in the two-panel command browser with **Git** selected. Use **Tab** to cycle collections, type to filter commands, and **/** to search the full library.
 
 Open it with a search already in place, list the library, or locate its data file:
 
@@ -75,9 +75,7 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | `Ctrl+A` | Create a command |
 | `Ctrl+E` | Edit the selected command |
 | `Ctrl+H` | Import a command from shell history |
-| `0`–`5` | Choose a dashboard section (`0` opens the complete tree) |
 | `Left` / `Right` or `Space` | Collapse or expand a tree branch |
-| `Ctrl+W` | Return to the welcome dashboard when search is empty |
 | `/` | Open search and browse |
 | `Ctrl+O` | Open About |
 | `?` | Show keyboard shortcuts |
