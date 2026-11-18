@@ -15,10 +15,18 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 	}
 	counts := map[string]int{}
 	names := map[string]bool{}
+	commandText := map[string]string{}
 	subcategories := map[string]map[string]int{}
 	for _, command := range commands {
 		counts[command.Category]++
+		if names[command.Name] {
+			t.Errorf("duplicate starter command name %q", command.Name)
+		}
 		names[command.Name] = true
+		if previous, ok := commandText[command.Command]; ok {
+			t.Errorf("duplicate starter command text %q used by %q and %q", command.Command, previous, command.Name)
+		}
+		commandText[command.Command] = command.Name
 		if subcategories[command.Category] == nil {
 			subcategories[command.Category] = map[string]int{}
 		}

@@ -22,9 +22,6 @@ func (m Model) View() string {
 	if m.Modal != "" {
 		return m.renderModal()
 	}
-	if m.Mode == "splash" {
-		return m.splashView()
-	}
 	if m.Mode == "welcome" {
 		return m.welcomeView()
 	}
@@ -59,22 +56,6 @@ func (m Model) browseView() string {
 		view = lipgloss.JoinVertical(lipgloss.Left, view, status)
 	}
 	return fit(Base, m.Width, m.Height, view)
-}
-
-func (m Model) splashView() string {
-	visible := min(7, 7*m.SplashFrame/15)
-	content := Title.Render("SNIPBOX"[:visible])
-	if m.SplashFrame >= 15 {
-		subtitle := "Your personal command library"
-		shown := min(len(subtitle), len(subtitle)*(m.SplashFrame-15)/13)
-		content += "\n\n" + Muted.Render(subtitle[:shown])
-	}
-	if m.SplashFrame >= 28 {
-		filled := min(20, 20*(m.SplashFrame-28)/(splashFinalFrame-29))
-		content += fmt.Sprintf("\n\n[%s%s] Ready", strings.Repeat("█", filled), strings.Repeat("░", 20-filled))
-	}
-	content += "\n\n" + Muted.Render("Press any key to skip")
-	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, content))
 }
 
 func (m Model) welcomeView() string {
@@ -303,9 +284,11 @@ func (m Model) detailsPanel(width, height int) string {
 	details := m.detailsContent()
 	if m.Mode == "tree" {
 		if row, ok := m.selectedTreeRow(); ok && row.Kind != "command" {
-			details = fmt.Sprintf("%s\n\n%s\n\nSelect a command to view its details.", row.Category, commandCountLabel(row.MatchCount))
-			if row.Kind == "subcategory" {
-				details = fmt.Sprintf("%s\n%s\n\n%s", row.Category, row.Subcategory, commandCountLabel(row.MatchCount))
+			switch row.Kind {
+			case "category":
+				details = "Select a subcategory to browse its commands."
+			case "subcategory":
+				details = fmt.Sprintf("%s in this subcategory. Expand to browse.", commandCountLabel(row.MatchCount))
 			}
 		}
 	}
@@ -396,7 +379,6 @@ func (m Model) modalView() string {
 		return strings.Join([]string{
 			"About Snipbox",
 			"",
-			"A personal command library for your terminal.",
 			"Search commands by name, description, tags, or text.",
 			"The Rust engine ranks matches; Go powers the terminal interface.",
 			"Commands are saved in local TOML. Shell history is imported only on request.",

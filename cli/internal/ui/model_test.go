@@ -14,30 +14,12 @@ import (
 	"github.com/snipbox/cli/internal/storage"
 )
 
-func TestNewStartsWithSplashOnlyWithoutQuery(t *testing.T) {
-	if model := New(nil, ""); model.Mode != "splash" {
-		t.Fatalf("empty query mode = %q, want splash", model.Mode)
+func TestNewStartsAtWelcomeWithoutQuery(t *testing.T) {
+	if model := New(nil, ""); model.Mode != "welcome" {
+		t.Fatalf("empty query mode = %q, want welcome", model.Mode)
 	}
 	if model := New(nil, "git"); model.Mode != "tree" {
 		t.Fatalf("query mode = %q, want tree", model.Mode)
-	}
-}
-
-func TestSplashCanBeSkippedAndAdvancesToWelcome(t *testing.T) {
-	model := New(nil, "")
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	if got := updated.(Model).Mode; got != "welcome" {
-		t.Fatalf("mode after splash key = %q, want welcome", got)
-	}
-	model = New(nil, "")
-	updated, cmd := model.Update(splashTickMsg{})
-	if got := updated.(Model).SplashFrame; got != 1 || cmd == nil {
-		t.Fatalf("splash tick frame/cmd = %d/%v, want 1 and next tick", got, cmd)
-	}
-	model.SplashFrame = splashFinalFrame - 1
-	updated, cmd = model.Update(splashTickMsg{})
-	if got := updated.(Model).Mode; got != "welcome" || cmd != nil {
-		t.Fatalf("final splash frame mode/cmd = %q/%v, want welcome and no timer", got, cmd)
 	}
 }
 
@@ -130,6 +112,22 @@ func TestWelcomeSelectionAndTreeExpansion(t *testing.T) {
 	}
 }
 
+func TestCategoryTabDoesNotRepeatItsNameInTheTreeAndDetails(t *testing.T) {
+	commands := []storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git branch"},
+	}
+	model := New(commands, "")
+	model.enterWelcomeSelection(0)
+	rows := model.treeRows()
+	if len(rows) == 0 || rows[0].Kind != "subcategory" {
+		t.Fatalf("Git tab should start at subcategories instead of repeating the tab name: %#v", rows)
+	}
+	if details := ansi.Strip(model.detailsPanel(56, 8)); strings.Contains(details, "Git") {
+		t.Fatalf("Git details should not repeat the active tab name: %q", details)
+	}
+}
+
 func TestTreeEnterStartsCopyVariableFlowAndRunRemainsSeparate(t *testing.T) {
 	commands := []storage.Command{{Name: "Checkout branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch {{branch:main}}"}}
 	model := New(commands, "")
@@ -210,8 +208,8 @@ func TestFilteredTreeCountsOnlyMatchingCommands(t *testing.T) {
 	if !strings.Contains(list, "Git (1)") {
 		t.Fatalf("filtered category count missing from tree: %q", list)
 	}
-	if details := model.detailsPanel(60, 8); !strings.Contains(details, "1 command") {
-		t.Fatalf("filtered category count missing from details: %q", details)
+	if details := model.detailsPanel(60, 8); !strings.Contains(details, "Select a subcategory") || strings.Contains(details, "1 command") {
+		t.Fatalf("category details should guide navigation without repeating the tree count: %q", details)
 	}
 	model.Selected = 1
 	if details := model.detailsPanel(60, 8); !strings.Contains(details, "1 command") {
@@ -337,28 +335,6 @@ func TestBrowsePanelsFillTerminalWidthWithoutClipping(t *testing.T) {
 		}
 		if got := lipgloss.Height(right); got != 10 {
 			t.Errorf("right panel height at %d columns = %d, want 10 including borders", width, got)
-		}
-	}
-}
-
-func TestSplashFitsTerminalBounds(t *testing.T) {
-	for _, size := range [][2]int{{120, 40}, {80, 24}, {70, 18}} {
-		model := New(nil, "")
-		model.Width, model.Height, model.SplashFrame = size[0], size[1], 39
-		view := model.View()
-		if !strings.Contains(view, "SNIPBOX") || !strings.Contains(view, "Ready") {
-			t.Fatalf("splash is missing its final frame content: %q", view)
-		}
-		if strings.Contains(view, "Terminal Command Orchestrator") {
-			t.Errorf("splash at %dx%d should not repeat the long product tagline", size[0], size[1])
-		}
-		if got := lipgloss.Height(view); got > size[1] {
-			t.Errorf("splash height = %d at %dx%d", got, size[0], size[1])
-		}
-		for line, content := range strings.Split(view, "\n") {
-			if got := lipgloss.Width(content); got > size[0] {
-				t.Errorf("splash line %d width = %d at %dx%d", line+1, got, size[0], size[1])
-			}
 		}
 	}
 }
@@ -509,6 +485,9 @@ func TestHelpAndAboutUseEnglishText(t *testing.T) {
 		if !strings.Contains(view, text) {
 			t.Errorf("About is missing %q: %q", text, view)
 		}
+	}
+	if strings.Contains(view, "personal command library") {
+		t.Error("About should not repeat the welcome screen tagline")
 	}
 	if view := ansi.Strip(model.View()); !strings.Contains(view, "Press Esc to close.") {
 		t.Errorf("About should keep its close hint visible at the minimum terminal size: %q", view)

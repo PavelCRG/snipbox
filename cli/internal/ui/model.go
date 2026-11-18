@@ -42,10 +42,6 @@ type runMsg struct {
 
 type clearStatusMsg string
 
-type splashTickMsg struct{}
-
-const splashFinalFrame = 40
-
 type treeRow struct {
 	Kind        string
 	Category    string
@@ -100,7 +96,6 @@ type Model struct {
 	Tab             string
 	Mode            string
 	WelcomeSelected int
-	SplashFrame     int
 	Status          string
 	Modal           string
 	Width           int
@@ -136,7 +131,7 @@ func New(commands []storage.Command, query string) Model {
 	search.PromptStyle = Selected
 	search.TextStyle = Base
 	search.Cursor.Style = Selected
-	mode := "splash"
+	mode := "welcome"
 	tab := "All"
 	if query != "" {
 		mode = "tree"
@@ -155,14 +150,7 @@ func New(commands []storage.Command, query string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	if m.Mode == "splash" {
-		return tea.Batch(textinput.Blink, nextSplashTick())
-	}
 	return textinput.Blink
-}
-
-func nextSplashTick() tea.Cmd {
-	return tea.Tick(30*time.Millisecond, func(time.Time) tea.Msg { return splashTickMsg{} })
 }
 
 func (m Model) matches() []searchHit {
@@ -223,9 +211,11 @@ func (m Model) treeRows() []treeRow {
 		if count == 0 {
 			continue
 		}
-		rows = append(rows, treeRow{Kind: "category", Category: category, Index: -1, MatchCount: count})
-		if !m.categoryExpanded[category] && m.Query == "" {
-			continue
+		if m.Tab == "All" {
+			rows = append(rows, treeRow{Kind: "category", Category: category, Index: -1, MatchCount: count})
+			if !m.categoryExpanded[category] && m.Query == "" {
+				continue
+			}
 		}
 		for _, subcategory := range storage.Subcategories(m.Commands, category) {
 			subCount := 0
@@ -294,16 +284,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.Status = status
 		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearStatusMsg(status) })
-	case splashTickMsg:
-		if m.Mode != "splash" {
-			return m, nil
-		}
-		m.SplashFrame++
-		if m.SplashFrame >= splashFinalFrame {
-			m.Mode = "welcome"
-			return m, nil
-		}
-		return m, nextSplashTick()
 	case clearStatusMsg:
 		if string(v) == m.Status {
 			m.Status = ""
@@ -311,10 +291,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.Modal != "" {
 			return m.updateModal(v)
-		}
-		if m.Mode == "splash" {
-			m.Mode = "welcome"
-			return m, nil
 		}
 		if m.Mode == "welcome" {
 			return m.updateWelcome(v)
