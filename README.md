@@ -16,7 +16,7 @@ Fuzzy-find, customize, and run the commands you use every day — from one focus
 
 Snipbox is a cross-platform command library with a fast Rust search engine and a polished Go terminal interface. Search snippets as you type, explore a navigable command tree, fill in template values, and copy or run commands from one focused workspace. Your library stays in a plain TOML file on your machine.
 
-The interface is designed around a simple loop: find a command, understand what it does, then copy or run it. Snipbox opens directly to the **Git** collection; use the category tabs to switch collections or browse the searchable command tree. The terminal interface and starter library are in English.
+The interface is designed around a simple loop: find a command, understand what it does, then copy or run it. Snipbox opens directly to the **Git** collection with its subcategories expanded; use the category tabs to switch collections or browse the searchable command tree. The terminal interface and starter library are in English.
 
 Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the application.
 

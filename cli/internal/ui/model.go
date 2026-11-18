@@ -128,7 +128,7 @@ func New(commands []storage.Command, query string) Model {
 	search.PromptStyle = Selected
 	search.TextStyle = Base
 	search.Cursor.Style = Selected
-	mode := "browse"
+	mode := "tree"
 	tab := "Git"
 	if query != "" {
 		mode = "tree"
@@ -138,13 +138,29 @@ func New(commands []storage.Command, query string) Model {
 	for _, category := range storage.Categories() {
 		expanded[category] = false
 	}
-	return Model{
+	subcategoryExpanded := make(map[string]bool)
+	if query == "" {
+		expanded["Git"] = true
+		for _, subcategory := range storage.Subcategories(commands, "Git") {
+			subcategoryExpanded["Git\x00"+subcategory] = true
+		}
+	}
+	model := Model{
 		Commands: commands, Query: query, Tab: tab, Mode: mode, editIndex: -1,
 		pendingDelete:    -1,
-		categoryExpanded: expanded, subcategoryExpanded: make(map[string]bool),
+		categoryExpanded: expanded, subcategoryExpanded: subcategoryExpanded,
 		searchInput: search, formInput: textinput.New(), variableInput: textinput.New(),
 		detailsView: viewport.New(1, 1), historyView: viewport.New(1, 1), helpView: help.New(),
 	}
+	if query == "" {
+		for index, row := range model.treeRows() {
+			if row.Kind == "command" {
+				model.Selected = index
+				break
+			}
+		}
+	}
+	return model
 }
 
 func (m Model) Init() tea.Cmd {

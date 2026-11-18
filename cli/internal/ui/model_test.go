@@ -15,8 +15,29 @@ import (
 )
 
 func TestNewStartsInGitCommandBrowser(t *testing.T) {
-	if model := New(nil, ""); model.Mode != "browse" || model.Tab != "Git" {
-		t.Fatalf("empty query mode/tab = %q/%q, want browse/Git", model.Mode, model.Tab)
+	commands := []storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git branch"},
+	}
+	model := New(commands, "")
+	if model.Mode != "tree" || model.Tab != "Git" {
+		t.Fatalf("empty query mode/tab = %q/%q, want tree/Git", model.Mode, model.Tab)
+	}
+	rows := model.treeRows()
+	commandRows := 0
+	for _, row := range rows {
+		if row.Kind == "category" {
+			t.Fatal("Git tab should not repeat the category in its tree")
+		}
+		if row.Kind == "command" {
+			commandRows++
+		}
+	}
+	if commandRows != len(commands) {
+		t.Fatalf("Git tree exposes %d commands at startup; want all %d", commandRows, len(commands))
+	}
+	if row, ok := model.selectedTreeRow(); !ok || row.Kind != "command" {
+		t.Fatalf("startup selection = %#v/%v; want the first command", row, ok)
 	}
 	if model := New(nil, "git"); model.Mode != "tree" {
 		t.Fatalf("query mode = %q, want tree", model.Mode)
@@ -338,7 +359,7 @@ func TestGitCommandBrowserFitsMinimumTerminalSizeWithoutDashboard(t *testing.T) 
 		model := New(commands, "")
 		model.Width, model.Height = size[0], size[1]
 		view := model.View()
-		for _, text := range []string{"SNIPBOX", "Commands", "Command Details", "Working tree status"} {
+		for _, text := range []string{"SNIPBOX", "Commands", "Command Details", "Basics & Staging", "Working tree status"} {
 			if !strings.Contains(view, text) {
 				t.Errorf("Git command browser at %dx%d is missing %q", size[0], size[1], text)
 			}
