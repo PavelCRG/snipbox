@@ -63,9 +63,9 @@ func (m Model) browseView() string {
 
 func (m Model) splashView() string {
 	visible := min(7, 7*m.SplashFrame/15)
-	content := gradientText("SNIPBOX"[:visible])
+	content := Title.Render("SNIPBOX"[:visible])
 	if m.SplashFrame >= 15 {
-		subtitle := "Terminal Command Orchestrator & Knowledge Base"
+		subtitle := "Your personal command library"
 		shown := min(len(subtitle), len(subtitle)*(m.SplashFrame-15)/13)
 		content += "\n\n" + Muted.Render(subtitle[:shown])
 	}
@@ -77,25 +77,14 @@ func (m Model) splashView() string {
 	return fit(Base, m.Width, m.Height, lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, content))
 }
 
-func gradientText(value string) string {
-	colors := []lipgloss.Color{blue, "#8b9df5", purple, "#d196c7", "#ec8e9e", "#ff9e64", purple}
-	var b strings.Builder
-	for i, r := range value {
-		b.WriteString(lipgloss.NewStyle().Foreground(colors[i%len(colors)]).Bold(true).Render(string(r)))
-	}
-	return b.String()
-}
-
 func (m Model) welcomeView() string {
 	if m.Height < 32 {
 		return m.compactWelcomeView()
 	}
 	var b strings.Builder
-	logo := Title.Render("  ____  _   _ ___ ____  ____   ___  __  __\n / ___|| | | |_ _|  _ \\/ ___| / _ \\|  \\/  |\n \\___ \\| |_| || || |_) \\___ \\| | | | |\\/| |\n  ___) |  _  || ||  __/ ___) | |_| | |  | |\n |____/|_| |_|___|_|   |____/ \\___/|_|  |_|")
+	b.WriteString(Title.Render("SNIPBOX"))
 	b.WriteString("\n\n")
-	b.WriteString(logo)
-	b.WriteString("\n\n")
-	b.WriteString(SectionTitle.Render("Terminal Command Orchestrator & Knowledge Base"))
+	b.WriteString(SectionTitle.Render("Your personal command library"))
 	fmt.Fprintf(&b, "\n\n%s   •   %d categories   •   %d favorites\n\n", commandCountLabel(len(m.Commands)), len(storage.Categories()), m.favoriteCount())
 	for i, category := range storage.Categories() {
 		line := fmt.Sprintf("%d   %s   %s", i+1, category, commandCountLabel(countCategory(m.Commands, category)))
@@ -121,8 +110,8 @@ func (m Model) welcomeView() string {
 
 func (m Model) compactWelcomeView() string {
 	lines := []string{
-		Title.Render("[ SNIPBOX ]"),
-		SectionTitle.Render("Terminal Command Orchestrator & Knowledge Base"),
+		Title.Render("SNIPBOX"),
+		SectionTitle.Render("Your personal command library"),
 		fmt.Sprintf("%s   •   %d sections   •   %d favorites", commandCountLabel(len(m.Commands)), len(storage.Categories()), m.favoriteCount()),
 		"",
 	}
@@ -198,7 +187,7 @@ func helpFooter(model help.Model, width int) string {
 func (m Model) headerView() string {
 	innerWidth := max(1, m.Width-2)
 	contentWidth := max(1, innerWidth-2)
-	brand := Title.Render("[ SNIPBOX ]")
+	brand := Title.Render("SNIPBOX")
 	tabs := append([]string{"All"}, storage.Categories()...)
 	var tabParts []string
 	for _, tab := range tabs {
@@ -404,7 +393,17 @@ func (m Model) modalView() string {
 	case "help":
 		return m.helpView.FullHelpView(keys.FullHelp())
 	case "about":
-		return strings.Join([]string{"About Snipbox", "", "A focused home for the commands you use every day.", "Built with Rust and Go.", "Created by Pavel Slepcov.", "", "Press Esc to return."}, "\n")
+		return strings.Join([]string{
+			"About Snipbox",
+			"",
+			"A personal command library for your terminal.",
+			"Search commands by name, description, tags, or text.",
+			"The Rust engine ranks matches; Go powers the terminal interface.",
+			"Commands are saved in local TOML. Shell history is imported only on request.",
+			"Created by Pavel Slepcov.",
+			"",
+			"Press Esc to close.",
+		}, "\n")
 	case "history":
 		return "Shell History\n\n" + m.historyView.View() + "\nEnter imports  •  Esc closes"
 	case "form":

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/snipbox/cli/internal/storage"
 )
 
@@ -348,6 +349,9 @@ func TestSplashFitsTerminalBounds(t *testing.T) {
 		if !strings.Contains(view, "SNIPBOX") || !strings.Contains(view, "Ready") {
 			t.Fatalf("splash is missing its final frame content: %q", view)
 		}
+		if strings.Contains(view, "Terminal Command Orchestrator") {
+			t.Errorf("splash at %dx%d should not repeat the long product tagline", size[0], size[1])
+		}
 		if got := lipgloss.Height(view); got > size[1] {
 			t.Errorf("splash height = %d at %dx%d", got, size[0], size[1])
 		}
@@ -364,6 +368,9 @@ func TestWelcomeDashboardKeepsAllSectionsAndControlsVisibleAtMinimumSize(t *test
 		model := New(nil, "")
 		model.Mode, model.Width, model.Height = "welcome", size[0], size[1]
 		view := model.View()
+		if strings.Contains(view, "____") {
+			t.Errorf("welcome dashboard at %dx%d should use a plain wordmark, not ASCII logo art", size[0], size[1])
+		}
 		for _, text := range []string{"Git", "PowerShell", "Docker", "Linux/Bash", "Network", "Browse All Tree", "Esc Quit"} {
 			if !strings.Contains(view, text) {
 				t.Errorf("welcome dashboard at %dx%d is missing %q", size[0], size[1], text)
@@ -496,8 +503,15 @@ func TestHelpAndAboutUseEnglishText(t *testing.T) {
 		t.Fatalf("help should list copy and quit bindings: %q", view)
 	}
 	model.Modal = "about"
-	if view := model.modalView(); !strings.Contains(view, "Created by Pavel Slepcov") {
-		t.Fatalf("About should identify the author: %q", view)
+	model.Width, model.Height = 70, 18
+	view := model.modalView()
+	for _, text := range []string{"About Snipbox", "Rust engine", "Go powers the terminal interface", "local TOML", "imported only on request", "Created by Pavel Slepcov"} {
+		if !strings.Contains(view, text) {
+			t.Errorf("About is missing %q: %q", text, view)
+		}
+	}
+	if view := ansi.Strip(model.View()); !strings.Contains(view, "Press Esc to close.") {
+		t.Errorf("About should keep its close hint visible at the minimum terminal size: %q", view)
 	}
 }
 
