@@ -27,6 +27,7 @@ Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the applicat
 - **Live fuzzy search** across command names, descriptions, tags, and command text.
 - **A two-panel workspace** with category tabs, favorites, usage counts, highlighted matches, and command details.
 - **Color-coded command tree** with visible branch connectors, expandable categories, and a contextual action menu.
+- **Execution context** showing supported shells, operating systems, and required tools for each starter command.
 - **Reusable templates** with editable prompts and defaults, such as `{{branch:feature/new-work}}`.
 - **Create and edit snippets** in the interface; changes are saved immediately to your local TOML library.
 - **Copy or run commands** with captured output and usage tracking. Destructive patterns require an explicit confirmation.

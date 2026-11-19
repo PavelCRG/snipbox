@@ -2,6 +2,7 @@ package storage
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -34,6 +35,9 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 		if command.Name == "" || command.Description == "" || command.Command == "" || len(command.Tags) == 0 {
 			t.Errorf("incomplete starter command: %+v", command)
 		}
+		if len(command.Shells) == 0 || len(command.Platforms) == 0 {
+			t.Errorf("starter command %q has no runtime metadata", command.Name)
+		}
 	}
 	for _, name := range []string{"Stop a process", "Inspect file permissions", "Create a ZIP archive", "Inspect listening ports", "Search file contents", "List files recursively", "Restart a service", "Publish the current branch", "Inspect a container", "Measure directory sizes", "Check a TLS endpoint"} {
 		if !names[name] {
@@ -58,8 +62,25 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 	if len(loaded) != len(commands) {
 		t.Fatalf("loaded %d commands; want %d", len(loaded), len(commands))
 	}
+	if len(loaded[0].Shells) == 0 || len(loaded[0].Platforms) == 0 {
+		t.Fatalf("runtime metadata was not preserved by TOML round-trip: %+v", loaded[0])
+	}
 	if _, err := os.Stat(Path()); err != nil {
 		t.Fatalf("saved database is unavailable: %v", err)
+	}
+}
+
+func TestStarterMetadataMarksLinuxOnlyUtilities(t *testing.T) {
+	for _, command := range defaults() {
+		if command.Name == "Show memory usage" && (len(command.Platforms) != 1 || command.Platforms[0] != "Linux" || len(command.Requirements) != 1 || command.Requirements[0] != "procps") {
+			t.Errorf("Linux memory command metadata = %+v", command)
+		}
+		if command.Name == "Show listening sockets" && (len(command.Platforms) != 1 || command.Platforms[0] != "Linux" || len(command.Requirements) != 1 || command.Requirements[0] != "iproute2") {
+			t.Errorf("Linux socket command metadata = %+v", command)
+		}
+		if command.Name == "Measure directory sizes" && (len(command.Platforms) != 1 || command.Platforms[0] != "Linux") {
+			t.Errorf("GNU du command metadata = %+v", command)
+		}
 	}
 }
 
@@ -76,5 +97,42 @@ func TestMigrationKeepsCustomCommandsAndSeedsNewLibrary(t *testing.T) {
 	}
 	if commands[0].Command != "echo custom" {
 		t.Fatal("migration must preserve custom command content")
+	}
+}
+
+func TestMigrationAddsRuntimeMetadataToUnchangedStarterCommands(t *testing.T) {
+	legacy := defaults()[0]
+	legacy.Shells, legacy.Platforms, legacy.Requirements = nil, nil, nil
+	legacy.Description = "My notes for this command"
+	legacy.Favorite, legacy.Usage = true, 14
+	commands, changed := migrate([]Command{legacy})
+	if !changed {
+		t.Fatal("migration should add runtime metadata to an unchanged starter command")
+	}
+	if len(commands[0].Shells) == 0 || len(commands[0].Platforms) == 0 {
+		t.Fatalf("starter command metadata was not added: %+v", commands[0])
+	}
+	if commands[0].Description != legacy.Description || !commands[0].Favorite || commands[0].Usage != legacy.Usage {
+		t.Fatalf("migration changed user data: %+v", commands[0])
+	}
+}
+
+func TestLoadAcceptsLegacyTOMLWithoutRuntimeMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	legacy := "[[commands]]\nname = \"My status\"\ncategory = \"Git\"\nsubcategory = \"Basics & Staging\"\ndescription = \"My saved command\"\ntags = [\"git\"]\ncommand = \"git status\"\n"
+	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(), []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := Load()
+	if err != nil {
+		t.Fatalf("Load() rejected a legacy TOML entry: %v", err)
+	}
+	if len(commands) != 61 || commands[0].Name != "My status" || commands[0].Shells != nil || commands[0].Platforms != nil {
+		t.Fatalf("legacy entry was not preserved with optional metadata: %+v (count %d)", commands[0], len(commands))
 	}
 }

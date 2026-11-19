@@ -895,6 +895,53 @@ func TestFormInputIsInteractive(t *testing.T) {
 	}
 }
 
+func TestCommandDetailsShowExecutionEnvironment(t *testing.T) {
+	model := New([]storage.Command{{
+		Name: "Inspect DNS", Category: "Network", Subcategory: "DNS", Command: "dig example.com",
+		Shells: []string{"Bash", "Zsh"}, Platforms: []string{"Linux", "macOS"}, Requirements: []string{"dig"},
+	}}, "inspect")
+	model.Mode, model.Selected = "browse", 0
+	details := ansi.Strip(model.detailsContent())
+	for _, expected := range []string{"Environment", "Shells: Bash, Zsh", "Platforms: Linux, macOS", "Tools: dig"} {
+		if !strings.Contains(details, expected) {
+			t.Errorf("command details omit %q: %q", expected, details)
+		}
+	}
+}
+
+func TestEditFormSavesRuntimeMetadata(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Echo", Category: "Git", Subcategory: "Basics", Description: "Print a message", Command: "echo hello", Tags: []string{"demo"}}}, "")
+	model.beginEdit()
+	if len(model.form) != 9 {
+		t.Fatalf("edit form has %d fields, want 9", len(model.form))
+	}
+	model.form[6], model.form[7], model.form[8] = "PowerShell, Bash", "Windows, Linux", "Git"
+	model.formField = 8
+	model.saveForm()
+	saved, err := storage.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) == 0 || strings.Join(saved[0].Shells, ",") != "PowerShell,Bash" || strings.Join(saved[0].Platforms, ",") != "Windows,Linux" || strings.Join(saved[0].Requirements, ",") != "Git" {
+		t.Fatalf("saved execution metadata = %+v", saved)
+	}
+}
+
+func TestSmallFormKeepsFocusedRuntimeFieldVisible(t *testing.T) {
+	model := New(nil, "")
+	model.Width, model.Height, model.Modal = 70, 18, "form"
+	model.form = []string{"Git", "Basics", "Name", "Description", "git", "echo ok", "Bash", "Linux", "Git"}
+	model.formField = 8
+	model.prepareFormInput()
+	view := ansi.Strip(model.View())
+	if !strings.Contains(view, "Required tools (comma separated)") || !strings.Contains(view, "Tab moves forward") {
+		t.Fatalf("small form hid its focused field or actions: %q", view)
+	}
+}
+
 func TestCleanOutputRemovesTerminalControlSequences(t *testing.T) {
 	if got := cleanOutput("\x1b[31mComplete\x1b[0m\r\n"); got != "Complete" {
 		t.Fatalf("cleanOutput() = %q, want Complete", got)

@@ -376,7 +376,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if category == "All" {
 				category = "Git"
 			}
-			m.form = []string{category, "General", "", "", "", ""}
+			m.form = []string{category, "General", "", "", "", "", "", "", ""}
 			m.formField, m.editIndex, m.Modal = 0, -1, "form"
 			m.prepareFormInput()
 			return m, nil
@@ -556,7 +556,7 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if category == "All" {
 			category = "Git"
 		}
-		m.form = []string{category, "General", "", "", "", ""}
+		m.form = []string{category, "General", "", "", "", "", "", "", ""}
 		m.formField, m.editIndex, m.Modal = 0, -1, "form"
 		m.prepareFormInput()
 		return m, nil
@@ -686,7 +686,7 @@ func (m *Model) beginDelete() {
 
 func (m *Model) beginEdit() {
 	if index, command, ok := m.selectedCommand(); ok {
-		m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command}
+		m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command, strings.Join(command.Shells, ", "), strings.Join(command.Platforms, ", "), strings.Join(command.Requirements, ", ")}
 		m.formField, m.editIndex, m.Modal = 0, index, "form"
 		m.prepareFormInput()
 	}
@@ -980,10 +980,11 @@ func (m *Model) saveForm() tea.Cmd {
 		return nil
 	}
 	command := storage.Command{Name: strings.TrimSpace(m.form[2]), Category: strings.TrimSpace(m.form[0]), Subcategory: strings.TrimSpace(m.form[1]), Description: strings.TrimSpace(m.form[3]), Command: strings.TrimSpace(m.form[5])}
-	for _, tag := range strings.Split(m.form[4], ",") {
-		if tag = strings.TrimSpace(tag); tag != "" {
-			command.Tags = append(command.Tags, tag)
-		}
+	command.Tags = splitList(m.form[4])
+	if len(m.form) > 8 {
+		command.Shells = splitList(m.form[6])
+		command.Platforms = splitList(m.form[7])
+		command.Requirements = splitList(m.form[8])
 	}
 	commands := append([]storage.Command(nil), m.Commands...)
 	for i, existing := range commands {
@@ -1006,6 +1007,16 @@ func (m *Model) saveForm() tea.Cmd {
 	m.formErrors = nil
 	m.Modal = ""
 	return m.successCmd("[OK] Command saved")
+}
+
+func splitList(value string) []string {
+	var result []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func (m Model) validateForm() map[int]string {

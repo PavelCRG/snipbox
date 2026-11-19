@@ -8,14 +8,17 @@ import (
 )
 
 type Command struct {
-	Name        string   `toml:"name" json:"name"`
-	Category    string   `toml:"category" json:"category"`
-	Subcategory string   `toml:"subcategory,omitempty" json:"subcategory,omitempty"`
-	Description string   `toml:"description" json:"description"`
-	Tags        []string `toml:"tags" json:"tags"`
-	Command     string   `toml:"command" json:"command"`
-	Favorite    bool     `toml:"is_favorite" json:"is_favorite"`
-	Usage       uint64   `toml:"usage_count" json:"usage_count"`
+	Name         string   `toml:"name" json:"name"`
+	Category     string   `toml:"category" json:"category"`
+	Subcategory  string   `toml:"subcategory,omitempty" json:"subcategory,omitempty"`
+	Description  string   `toml:"description" json:"description"`
+	Tags         []string `toml:"tags" json:"tags"`
+	Command      string   `toml:"command" json:"command"`
+	Shells       []string `toml:"shells,omitempty" json:"shells,omitempty"`
+	Platforms    []string `toml:"platforms,omitempty" json:"platforms,omitempty"`
+	Requirements []string `toml:"requirements,omitempty" json:"requirements,omitempty"`
+	Favorite     bool     `toml:"is_favorite" json:"is_favorite"`
+	Usage        uint64   `toml:"usage_count" json:"usage_count"`
 }
 
 type file struct {
@@ -28,7 +31,7 @@ func Path() string {
 }
 
 func defaults() []Command {
-	return []Command{
+	commands := []Command{
 		{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Description: "Show the current branch and a concise summary of staged, unstaged, and untracked files. Run this before committing to understand exactly what Git will include.", Command: "git status --short --branch", Tags: []string{"git", "status"}},
 		{Name: "Stage all changes", Category: "Git", Subcategory: "Basics & Staging", Description: "Stage every tracked modification, deletion, and new file in the repository. Review the staged diff afterward so unrelated files do not enter the same commit.", Command: "git add -A", Tags: []string{"git", "staging"}},
 		{Name: "Review staged changes", Category: "Git", Subcategory: "Basics & Staging", Description: "Display the patch currently staged for the next commit. Use this to catch accidental edits, secrets, or generated files before they are recorded.", Command: "git diff --cached", Tags: []string{"git", "diff"}},
@@ -90,6 +93,41 @@ func defaults() []Command {
 		{Name: "Download a file with resume support", Category: "Network", Subcategory: "HTTP", Description: "Download a URL to a named local file and continue an existing partial download when the server supports byte ranges. Review the URL and destination before saving files from untrusted sources.", Command: "curl -fL --retry {{retries:3}} -C - -o {{file:download.bin}} {{url:https://example.com/file}}", Tags: []string{"network", "http", "download"}},
 		{Name: "Inspect an HTTP response", Category: "Network", Subcategory: "HTTP", Description: "Request a URL and print the response status, headers, and timing details without saving the body. This makes it easier to diagnose redirects, slow connection phases, and server errors.", Command: "curl -sS -o /dev/null -w 'status=%{http_code} total=%{time_total}s\\n' {{url:https://example.com}}", Tags: []string{"network", "http", "diagnostics"}},
 	}
+	for i := range commands {
+		commands[i].Shells, commands[i].Platforms, commands[i].Requirements = runtimeMetadata(commands[i])
+	}
+	return commands
+}
+
+func runtimeMetadata(command Command) (shells, platforms, requirements []string) {
+	switch command.Category {
+	case "Git":
+		shells, platforms, requirements = []string{"Bash", "PowerShell", "Zsh"}, []string{"Windows", "Linux", "macOS"}, []string{"Git"}
+	case "PowerShell":
+		shells, platforms = []string{"PowerShell"}, []string{"Windows"}
+	case "Docker":
+		shells, platforms, requirements = []string{"Bash", "PowerShell", "Zsh"}, []string{"Windows", "Linux", "macOS"}, []string{"Docker CLI"}
+	case "Linux/Bash":
+		shells, platforms = []string{"Bash", "Zsh"}, []string{"Linux", "macOS"}
+	case "Network":
+		shells, platforms = []string{"Bash", "Zsh"}, []string{"Linux", "macOS"}
+	}
+	if command.Category == "Linux/Bash" || command.Category == "Network" {
+		switch {
+		case strings.HasPrefix(command.Command, "free "):
+			platforms, requirements = []string{"Linux"}, []string{"procps"}
+		case strings.HasPrefix(command.Command, "du -h --max-depth="):
+			platforms = []string{"Linux"}
+		case strings.HasPrefix(command.Command, "ss "), strings.HasPrefix(command.Command, "ip "):
+			platforms, requirements = []string{"Linux"}, []string{"iproute2"}
+		}
+	}
+	for _, tool := range []struct{ prefix, name string }{{"rg ", "ripgrep"}, {"dig ", "dig"}, {"openssl ", "OpenSSL"}, {"traceroute ", "traceroute"}} {
+		if strings.HasPrefix(command.Command, tool.prefix) {
+			requirements = append(requirements, tool.name)
+		}
+	}
+	return
 }
 
 func Load() ([]Command, error) {
@@ -141,15 +179,34 @@ func migrate(commands []Command) ([]Command, bool) {
 			changed = true
 		}
 	}
-	known := make(map[string]bool, len(commands))
-	for _, command := range commands {
-		known[command.Category+"\x00"+command.Name] = true
+	known := make(map[string]int, len(commands))
+	for i, command := range commands {
+		key := command.Category + "\x00" + command.Name
+		if _, exists := known[key]; !exists {
+			known[key] = i
+		}
 	}
 	for _, command := range defaults() {
 		key := command.Category + "\x00" + command.Name
-		if !known[key] {
+		if index, exists := known[key]; exists {
+			if commands[index].Command != command.Command {
+				continue
+			}
+			if len(commands[index].Shells) == 0 && len(command.Shells) > 0 {
+				commands[index].Shells = append([]string(nil), command.Shells...)
+				changed = true
+			}
+			if len(commands[index].Platforms) == 0 && len(command.Platforms) > 0 {
+				commands[index].Platforms = append([]string(nil), command.Platforms...)
+				changed = true
+			}
+			if len(commands[index].Requirements) == 0 && len(command.Requirements) > 0 {
+				commands[index].Requirements = append([]string(nil), command.Requirements...)
+				changed = true
+			}
+		} else {
 			commands = append(commands, command)
-			known[key] = true
+			known[key] = len(commands) - 1
 			changed = true
 		}
 	}

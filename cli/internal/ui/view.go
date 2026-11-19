@@ -312,6 +312,14 @@ func (m Model) detailsContent() string {
 		tags = append(tags, "#"+tag)
 	}
 	b.WriteString(Muted.Render(strings.Join(tags, "  ")) + "\n\n")
+	b.WriteString(SectionTitle.Render("Environment") + "\n")
+	b.WriteString("Shells: " + metadataText(command.Shells) + "\n")
+	b.WriteString("Platforms: " + metadataText(command.Platforms) + "\n")
+	tools := metadataText(command.Requirements)
+	if tools == "Not specified" {
+		tools = "None listed"
+	}
+	b.WriteString("Tools: " + tools + "\n\n")
 	b.WriteString(SectionTitle.Render("Description") + "\n" + command.Description + "\n\n")
 	b.WriteString(SectionTitle.Render("Command") + "\n" + CommandBlock.Render(highlightTemplate(command.Command)) + "\n\n")
 	b.WriteString(SectionTitle.Render("Parameters") + "\n")
@@ -336,6 +344,13 @@ func (m Model) detailsContent() string {
 		b.WriteString("\n" + Danger.Render("[!] DANGEROUS COMMAND"))
 	}
 	return b.String()
+}
+
+func metadataText(values []string) string {
+	if len(values) == 0 {
+		return "Not specified"
+	}
+	return strings.Join(values, ", ")
 }
 
 func (m Model) selectedIndices() []int {
@@ -410,17 +425,21 @@ func (m Model) modalView() string {
 	case "history_preview":
 		return "Review History Import\n\nCommand:\n" + m.pendingImport + "\n\nEnter saves to your library  •  Esc returns to history"
 	case "form":
-		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command"}
+		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command", "Shells (comma separated)", "Platforms (comma separated)", "Required tools (comma separated)"}
 		var b strings.Builder
 		if m.editIndex < 0 {
 			b.WriteString("New Command\n\n")
 		} else {
 			b.WriteString("Edit Command\n\n")
 		}
-		for i, label := range labels {
-			if i >= len(m.form) {
-				continue
-			}
+		visible := max(1, m.Height-12)
+		start := min(max(0, m.formField-visible+1), max(0, len(m.form)-visible))
+		end := min(len(m.form), start+visible)
+		if start > 0 {
+			b.WriteString(Muted.Render("... earlier fields") + "\n")
+		}
+		for i := start; i < end && i < len(labels); i++ {
+			label := labels[i]
 			prefix, value := "  ", m.form[i]
 			if i == m.formField {
 				prefix, value = "> ", m.formInput.View()
@@ -430,6 +449,9 @@ func (m Model) modalView() string {
 				b.WriteString(Danger.Render("  ! " + message))
 			}
 			b.WriteByte('\n')
+		}
+		if end < len(m.form) {
+			b.WriteString(Muted.Render("... more fields below") + "\n")
 		}
 		b.WriteString("\nTab moves forward  •  Ctrl+S saves  •  Esc cancels")
 		return b.String()
