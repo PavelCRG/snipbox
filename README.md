@@ -39,7 +39,7 @@ Launch the interactive workspace:
 snipbox
 ```
 
-Snipbox opens directly in the two-panel command browser with **Git** selected. Use **Tab** to cycle collections, type to filter commands, and **/** to search the full library.
+Snipbox opens directly in the two-panel command browser with **Git** selected. Use **Tab** to cycle collections, type to filter commands, and click a command or move with the arrow keys to inspect its details. Press **M** to open its action menu. Press **/** to search the full library.
 
 Open it with a search already in place, list the library, or locate its data file:
 

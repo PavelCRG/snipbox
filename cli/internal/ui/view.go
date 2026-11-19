@@ -126,6 +126,10 @@ func panelWidths(width int) (leftOuter, rightOuter, leftContent, rightContent in
 	return
 }
 
+func listStart(selected, visible, total int) int {
+	return min(max(0, selected-visible+1), max(0, total-visible))
+}
+
 func (m Model) commandList(width, height int) string {
 	var b strings.Builder
 	rows := m.matches()
@@ -141,54 +145,59 @@ func (m Model) commandList(width, height int) string {
 			}
 			b.WriteString(Muted.Render(message))
 		}
-		start := min(max(0, m.Selected-visibleRows+1), max(0, len(tree)-visibleRows))
+		start := listStart(m.Selected, visibleRows, len(tree))
 		for i := start; i < min(start+visibleRows, len(tree)); i++ {
 			row := tree[i]
+			selected := i == m.Selected
 			marker := "  "
-			if i == m.Selected {
-				marker = Selected.Render("┃ ")
+			if selected {
+				marker = "\u25b6 "
 			}
-			label := ""
+			line := ""
 			switch row.Kind {
 			case "category":
-				arrow := "▸"
+				arrow := "\u25b8"
 				if m.categoryExpanded[row.Category] || m.Query != "" {
-					arrow = "▾"
+					arrow = "\u25be"
 				}
-				label = arrow + " " + row.Category + fmt.Sprintf(" (%d)", row.MatchCount)
+				if selected {
+					line = SelectedRow.Width(width).Render(marker + arrow + " " + row.Category + fmt.Sprintf(" (%d)", row.MatchCount))
+				} else {
+					line = marker + arrow + " " + CategoryStyle(row.Category).Render(row.Category) + Muted.Render(fmt.Sprintf(" (%d)", row.MatchCount))
+				}
 			case "subcategory":
-				key := row.Category + "\x00" + row.Subcategory
-				arrow := "▸"
-				if m.subcategoryExpanded[key] || m.Query != "" {
-					arrow = "▾"
+				path := row.Category + "\x00" + row.Subcategory
+				arrow := "\u25b8"
+				if m.subcategoryExpanded[path] || m.Query != "" {
+					arrow = "\u25be"
 				}
-				label = "  " + arrow + " " + row.Subcategory
+				label := "  " + arrow + " " + row.Subcategory
+				if selected {
+					line = SelectedRow.Width(width).Render(marker + label)
+				} else {
+					line = marker + CategoryTextStyle(row.Category).Render(label)
+				}
 			case "command":
-				c := m.Commands[row.Index]
+				command := m.Commands[row.Index]
 				star := " "
-				if c.Favorite {
-					star = "★"
+				if command.Favorite {
+					star = "\u2605"
 				}
-				label = "      " + star + " " + c.Name
-				usage := Muted.Render(fmt.Sprintf("%dx", c.Usage))
+				label := "    " + star + " " + command.Name
+				usage := fmt.Sprintf("%dx", command.Usage)
 				labelWidth := max(1, width-lipgloss.Width(marker)-lipgloss.Width(usage)-1)
-				label = ansi.Truncate(label, labelWidth, "…")
+				label = ansi.Truncate(label, labelWidth, "\u2026")
 				padding := strings.Repeat(" ", max(1, width-lipgloss.Width(marker)-lipgloss.Width(label)-lipgloss.Width(usage)))
-				style := Muted
-				if i == m.Selected {
-					style = Selected
+				if selected {
+					line = SelectedRow.Width(width).Render(marker + label + padding + usage)
+				} else {
+					line = marker + Muted.Render(label) + padding + Muted.Render(usage)
 				}
-				b.WriteString(ansi.Truncate(marker+style.Render(label)+padding+usage, width, "…") + "\n")
-				continue
 			}
-			style := Muted
-			if i == m.Selected {
-				style = Selected
-			}
-			b.WriteString(ansi.Truncate(marker+style.Render(label), width, "…") + "\n")
+			b.WriteString(ansi.Truncate(line, width, "\u2026") + "\n")
 		}
 	} else {
-		start := min(max(0, m.Selected-visibleRows+1), max(0, len(rows)-visibleRows))
+		start := listStart(m.Selected, visibleRows, len(rows))
 		if len(rows) == 0 {
 			b.WriteString(Muted.Render("No commands match this search."))
 		}

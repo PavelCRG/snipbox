@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/snipbox/cli/internal/storage"
 )
 
@@ -399,6 +400,58 @@ func selectCommandRow(model *Model, commandIndex int) {
 			model.Selected = i
 			return
 		}
+	}
+}
+
+func TestMouseClickSelectsCommandAndRefreshesDetails(t *testing.T) {
+	commands := []storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Create branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch -c {{branch:topic}}"},
+	}
+	model := New(commands, "")
+	model.Width, model.Height = 100, 30
+	model.detailsView.Height = 4
+	model.detailsView.SetContent(strings.Repeat("detail\n", 12))
+	model.detailsView.SetYOffset(8)
+	model.subcategoryExpanded["Git\x00Branches & Merging"] = true
+	rows := model.treeRows()
+	rowIndex := -1
+	for i, row := range rows {
+		if row.Kind == "command" && row.Index == 1 {
+			rowIndex = i
+			break
+		}
+	}
+	if rowIndex < 0 {
+		t.Fatal("test command is not visible in the tree")
+	}
+	headerHeight := lipgloss.Height(model.headerView())
+	updated, _ := model.Update(tea.MouseMsg{X: 3, Y: headerHeight + 2 + rowIndex, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	model = updated.(Model)
+	if _, command, ok := model.selectedCommand(); !ok || command.Name != "Create branch" {
+		t.Fatalf("mouse-selected command = %#v/%t", command, ok)
+	}
+	if !strings.Contains(model.detailsContent(), "git switch -c") || model.Modal != "" {
+		t.Fatalf("click did not update details without activating command: %q / modal %q", model.detailsContent(), model.Modal)
+	}
+	if model.detailsView.YOffset != 0 {
+		t.Fatalf("selecting a command kept stale details scroll at offset %d", model.detailsView.YOffset)
+	}
+}
+
+func TestTreeUsesCategoryColorAndVisibleSelectionPointer(t *testing.T) {
+	previous := lipgloss.DefaultRenderer().ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(previous)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Mode, model.Tab = "tree", "All"
+	rendered := model.commandList(64, 8)
+	if !strings.Contains(rendered, "48;2;255;158;100") {
+		t.Fatalf("Git tree category did not render its Tokyo Night accent color: %q", rendered)
+	}
+	selected := ansi.Strip(model.commandList(64, 8))
+	if !strings.Contains(selected, "▶") {
+		t.Fatalf("selected row is missing its visible pointer: %q", selected)
 	}
 }
 

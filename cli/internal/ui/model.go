@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/snipbox/cli/internal/bridge"
 	"github.com/snipbox/cli/internal/history"
 	"github.com/snipbox/cli/internal/storage"
@@ -302,6 +303,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if string(v) == m.Status {
 			m.Status = ""
 		}
+	case tea.MouseMsg:
+		return m.updateMouse(v)
 	case tea.KeyMsg:
 		if m.Modal != "" {
 			return m.updateModal(v)
@@ -422,6 +425,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	return m, nil
+}
+
+func (m Model) updateMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.Modal != "" || m.Width < 70 || m.Height < 18 || mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	leftWidth, _, _, _ := panelWidths(m.Width)
+	if mouse.X < 0 || mouse.X >= leftWidth {
+		return m, nil
+	}
+	headerHeight := lipgloss.Height(m.headerView())
+	rowOffset := mouse.Y - headerHeight - 2
+	if rowOffset < 0 {
+		return m, nil
+	}
+	helpWidth := max(1, m.Width-4)
+	helpHeight := strings.Count(helpFooter(m.helpView, helpWidth), "\n") + 1
+	if m.Status != "" {
+		helpHeight++
+	}
+	bodyHeight := max(3, m.Height-headerHeight-helpHeight)
+	visibleRows := max(1, max(1, bodyHeight-2)-1)
+	if rowOffset >= visibleRows {
+		return m, nil
+	}
+	rows := m.treeRows()
+	if m.Mode != "tree" {
+		rows = nil
+		for _, hit := range m.matches() {
+			rows = append(rows, treeRow{Kind: "command", Index: hit.Index})
+		}
+	}
+	index := listStart(m.Selected, visibleRows, len(rows)) + rowOffset
+	if index >= len(rows) {
+		return m, nil
+	}
+	m.Selected = index
+	m.syncDetails()
 	return m, nil
 }
 
@@ -755,6 +797,7 @@ func (m *Model) layout() {
 func (m *Model) syncDetails() {
 	_, _, _, width := panelWidths(m.Width)
 	m.detailsView.Width = width
+	m.detailsView.GotoTop()
 	m.detailsView.SetContent(wrapLines(m.detailsContent(), max(1, width)))
 }
 

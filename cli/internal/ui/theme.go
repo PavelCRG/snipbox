@@ -19,6 +19,7 @@ var (
 	ActivePanel  = Panel.BorderForeground(blue)
 	DetailPanel  = Panel.BorderForeground(purple)
 	Selected     = lipgloss.NewStyle().Foreground(cyan).Bold(true)
+	SelectedRow  = lipgloss.NewStyle().Foreground(cyan).Background(lipgloss.Color("#283457")).Bold(true)
 	Highlight    = lipgloss.NewStyle().Foreground(cyan).Bold(true)
 	Variable     = lipgloss.NewStyle().Foreground(lipgloss.Color("#f7768e")).Bold(true)
 	SectionTitle = lipgloss.NewStyle().Foreground(purple).Bold(true)
@@ -37,4 +38,12 @@ func CategoryStyle(name string) lipgloss.Style {
 		color = lipgloss.Color("#565f89")
 	}
 	return lipgloss.NewStyle().Foreground(background).Background(color).Bold(true).Padding(0, 1)
+}
+
+func CategoryTextStyle(name string) lipgloss.Style {
+	color, ok := category[name]
+	if !ok {
+		color = lipgloss.Color("#565f89")
+	}
+	return lipgloss.NewStyle().Foreground(color).Bold(true)
 }

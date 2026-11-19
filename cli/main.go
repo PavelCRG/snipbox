@@ -33,7 +33,7 @@ func main() {
 			}
 			return nil
 		}
-		_, err = tea.NewProgram(ui.New(commands, strings.Join(args, " ")), tea.WithAltScreen()).Run()
+		_, err = tea.NewProgram(ui.New(commands, strings.Join(args, " ")), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 		return err
 	}}
 	root.Flags().BoolVar(&list, "list", false, "List commands")
