@@ -51,14 +51,14 @@ type treeRow struct {
 }
 
 type keyMap struct {
-	Up, Down, PageUp, PageDown, Copy, Run, NextTab, PreviousTab, New, Edit, Favorite, Delete, History, Help, About, Quit key.Binding
+	Up, Down, PageUp, PageDown, Copy, Run, NextTab, PreviousTab, New, Edit, Favorite, Delete, History, Actions, Help, About, Quit key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Copy, k.Run, k.NextTab, k.PreviousTab, k.New, k.Edit, k.Favorite, k.Delete, k.History, k.About, k.Help, k.Quit}
+	return []key.Binding{k.Copy, k.Actions, k.NextTab, k.Help, k.Quit}
 }
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Copy, k.Run, k.NextTab, k.PreviousTab}, {k.New, k.Edit, k.Favorite, k.Delete, k.History, k.Help, k.About, k.Quit}}
+	return [][]key.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Copy, k.Run, k.Actions, k.NextTab, k.PreviousTab}, {k.New, k.Edit, k.Favorite, k.Delete, k.History, k.Help, k.About, k.Quit}}
 }
 
 var keys = keyMap{
@@ -68,13 +68,14 @@ var keys = keyMap{
 	PageDown:    key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "scroll details")),
 	Copy:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "copy")),
 	Run:         key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run")),
-	NextTab:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "tabs")),
+	NextTab:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "categories")),
 	PreviousTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
 	New:         key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "new")),
 	Edit:        key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit")),
 	Favorite:    key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "favorite")),
 	Delete:      key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "delete")),
 	History:     key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "history")),
+	Actions:     key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "actions")),
 	Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	About:       key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "about")),
 	Quit:        key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "quit")),
@@ -112,6 +113,7 @@ type Model struct {
 	variables           []string
 	values              map[string]string
 	varField            int
+	actionSelected      int
 	pending             string
 	variableAction      string
 	pendingDelete       int
@@ -337,6 +339,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+o":
 			m.Modal = "about"
 			return m, nil
+		case "m":
+			if m.Query == "" {
+				m.openActions()
+				return m, nil
+			}
 		case "enter":
 			_, command, ok := m.selectedCommand()
 			if ok {
@@ -361,11 +368,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prepareFormInput()
 			return m, nil
 		case "ctrl+e":
-			if index, command, ok := m.selectedCommand(); ok {
-				m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command}
-				m.formField, m.editIndex, m.Modal = 0, index, "form"
-				m.prepareFormInput()
-			}
+			m.beginEdit()
 			return m, nil
 		case "ctrl+f":
 			return m, m.toggleFavorite()
@@ -499,11 +502,7 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prepareFormInput()
 		return m, nil
 	case "ctrl+e":
-		if index, command, ok := m.selectedCommand(); ok {
-			m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command}
-			m.formField, m.editIndex, m.Modal = 0, index, "form"
-			m.prepareFormInput()
-		}
+		m.beginEdit()
 		return m, nil
 	case "ctrl+f":
 		return m, m.toggleFavorite()
@@ -527,6 +526,11 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		m.Modal = "about"
 		return m, nil
+	case "m":
+		if m.Query == "" {
+			m.openActions()
+			return m, nil
+		}
 	}
 	var cmd tea.Cmd
 	m.searchInput, cmd = m.searchInput.Update(key)
@@ -581,6 +585,51 @@ func (m *Model) beginDelete() {
 	}
 	m.pendingDelete = index
 	m.Modal = "confirm_delete"
+}
+
+func (m *Model) beginEdit() {
+	if index, command, ok := m.selectedCommand(); ok {
+		m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command}
+		m.formField, m.editIndex, m.Modal = 0, index, "form"
+		m.prepareFormInput()
+	}
+}
+
+func (m *Model) openActions() {
+	if _, _, ok := m.selectedCommand(); !ok {
+		m.Status = "Select a command to view its actions"
+		return
+	}
+	m.actionSelected, m.Modal = 0, "actions"
+}
+
+func (m Model) actionLabels() []string {
+	_, command, ok := m.selectedCommand()
+	if !ok {
+		return nil
+	}
+	favorite := "Add to favorites"
+	if command.Favorite {
+		favorite = "Remove from favorites"
+	}
+	return []string{"Copy to clipboard", "Run in terminal", favorite, "Edit command", "Delete command"}
+}
+
+func (m Model) runSelectedAction() (tea.Model, tea.Cmd) {
+	m.Modal = ""
+	switch m.actionSelected {
+	case 0:
+		return m, m.beginCopy()
+	case 1:
+		return m, m.beginRun()
+	case 2:
+		return m, m.toggleFavorite()
+	case 3:
+		m.beginEdit()
+	case 4:
+		m.beginDelete()
+	}
+	return m, nil
 }
 
 func (m *Model) deletePending() tea.Cmd {
@@ -655,6 +704,22 @@ func (m *Model) prepareFormInput() {
 
 func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.Modal {
+	case "actions":
+		labels := m.actionLabels()
+		switch key.String() {
+		case "esc":
+			m.Modal = ""
+		case "up":
+			if m.actionSelected > 0 {
+				m.actionSelected--
+			}
+		case "down":
+			if m.actionSelected < len(labels)-1 {
+				m.actionSelected++
+			}
+		case "enter":
+			return m.runSelectedAction()
+		}
 	case "help", "about":
 		if key.String() == "esc" || key.String() == "?" || key.String() == "enter" {
 			m.Modal = ""

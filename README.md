@@ -70,11 +70,13 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | `↑` / `↓` | Move through results |
 | Type | Search the library |
 | `Enter` | Copy the selected command |
+| `M` | Open actions for the selected command |
 | `Ctrl+R` | Fill template values and run |
 | `Tab` | Cycle through categories |
 | `Ctrl+A` | Create a command |
 | `Ctrl+E` | Edit the selected command |
 | `Ctrl+H` | Import a command from shell history |
+| `Ctrl+F` / `Ctrl+D` | Toggle favorite / request deletion |
 | `Left` / `Right` or `Space` | Collapse or expand a tree branch |
 | `/` | Open search and browse |
 | `Ctrl+O` | Open About |

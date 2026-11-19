@@ -291,6 +291,18 @@ func modalBox(width int, content string) string {
 
 func (m Model) modalView() string {
 	switch m.Modal {
+	case "actions":
+		var b strings.Builder
+		b.WriteString("Command Actions\n\n")
+		for i, label := range m.actionLabels() {
+			if i == m.actionSelected {
+				fmt.Fprintf(&b, "%s %s\n", Selected.Render("▶"), Selected.Render(label))
+			} else {
+				fmt.Fprintf(&b, "  %s\n", label)
+			}
+		}
+		b.WriteString("\nUp/Down move  •  Enter choose  •  Esc close")
+		return b.String()
 	case "help":
 		return m.helpView.FullHelpView(keys.FullHelp())
 	case "about":

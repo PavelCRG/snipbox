@@ -165,7 +165,7 @@ func TestTreeEnterStartsCopyVariableFlowAndRunRemainsSeparate(t *testing.T) {
 	}
 }
 
-func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
+func TestTreeUsageCountAndCompactFooter(t *testing.T) {
 	commands := []storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status", Usage: 14}}
 	model := New(commands, "")
 	model.Mode, model.Tab = "tree", "Git"
@@ -179,18 +179,83 @@ func TestTreeUsageCountAndResponsiveFooterIncludeAllActions(t *testing.T) {
 	if rendered := model.commandList(64, 8); !strings.Contains(rendered, "14x") {
 		t.Fatalf("tree command row omitted usage count: %q", rendered)
 	}
-	if got := len(keys.ShortHelp()); got != 12 {
-		t.Fatalf("short help has %d bindings, want 12", got)
+	if got := len(keys.ShortHelp()); got != 5 {
+		t.Fatalf("short help has %d bindings, want 5", got)
 	}
 	helpView := helpFooter(help.New(), 44)
-	for _, desc := range []string{"copy", "run", "tabs", "previous tab", "new", "edit", "favorite", "delete", "history", "about", "help", "quit"} {
+	for _, desc := range []string{"copy", "actions", "categories", "help", "quit"} {
 		if !strings.Contains(helpView, desc) {
 			t.Errorf("responsive footer omitted %q: %q", desc, helpView)
+		}
+	}
+	for _, desc := range []string{"previous tab", "favorite", "delete", "history", "about"} {
+		if strings.Contains(helpView, desc) {
+			t.Errorf("compact footer repeats secondary action %q: %q", desc, helpView)
 		}
 	}
 	for _, line := range strings.Split(helpView, "\n") {
 		if lipgloss.Width(line) > 44 {
 			t.Errorf("footer line width %d exceeds 44: %q", lipgloss.Width(line), line)
+		}
+	}
+}
+
+func TestActionsMenuOpensOnlyForSelectedCommandAndRunsFavoriteAction(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Width, model.Height = 80, 24
+	model.subcategoryExpanded["Git\x00Basics & Staging"] = true
+	for i, row := range model.treeRows() {
+		if row.Kind == "command" {
+			model.Selected = i
+			break
+		}
+	}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	model = updated.(Model)
+	if model.Modal != "actions" {
+		t.Fatalf("M opened modal %q, want actions", model.Modal)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.Modal != "" || !model.Commands[0].Favorite {
+		t.Fatalf("favorite menu action modal/favorite = %q/%t, want closed/true", model.Modal, model.Commands[0].Favorite)
+	}
+}
+
+func TestActionsMenuDoesNotOpenDuringSearchAndFitsTerminal(t *testing.T) {
+	model := New([]storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "git")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	model = updated.(Model)
+	if model.Modal != "" || model.Query != "gitm" {
+		t.Fatalf("M during search modal/query = %q/%q, want no modal and typed query", model.Modal, model.Query)
+	}
+	model = New([]storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Width, model.Height = 70, 18
+	model.subcategoryExpanded["Git\x00Basics & Staging"] = true
+	for i, row := range model.treeRows() {
+		if row.Kind == "command" {
+			model.Selected = i
+			break
+		}
+	}
+	model.Modal = "actions"
+	view := model.View()
+	if !strings.Contains(view, "Command Actions") || !strings.Contains(view, "Copy to clipboard") {
+		t.Fatalf("actions modal is missing its title or choices: %q", view)
+	}
+	if lipgloss.Height(view) > model.Height {
+		t.Fatalf("actions modal height = %d, terminal height = %d", lipgloss.Height(view), model.Height)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > model.Width {
+			t.Fatalf("actions modal line width = %d, terminal width = %d", lipgloss.Width(line), model.Width)
 		}
 	}
 }
