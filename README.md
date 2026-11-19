@@ -14,9 +14,11 @@ Fuzzy-find, customize, and run the commands you use every day — from one focus
 
 ## About
 
-Snipbox is a cross-platform command library with a fast Rust search engine and a polished Go terminal interface. Search snippets as you type, explore a navigable command tree, fill in template values, and copy or run commands from one focused workspace. Your library stays in a plain TOML file on your machine.
+Snipbox is a cross-platform command library for people who work in a terminal and want their dependable commands to be easy to find, understand, and reuse. It brings search, documentation, templates, favorites, and execution into one keyboard-first workspace instead of scattering useful commands across shell history, notes, and old project files.
 
-The interface is designed around a simple loop: find a command, understand what it does, then copy or run it. Snipbox opens directly to the **Git** collection with its subcategories expanded; use the category tabs to switch collections or browse the searchable command tree. The terminal interface and starter library are in English.
+The interface follows a simple workflow: find a command, inspect its purpose and parameters, fill in any values, then copy or run the result. Snipbox opens directly to the **Git** collection with its subcategories expanded. Use the category tabs to move between topics, or switch to **All** to browse the entire library as a searchable tree. Click a command to inspect it; right-click it or press **M** to open its action menu.
+
+The Rust engine provides fuzzy matching and template parsing; the Go application handles the terminal UI and local integrations. Commands are stored as ordinary TOML on your own machine. Snipbox does not require an account or send your library anywhere; shell-history import and Git sync happen only when you choose them.
 
 Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the application.
 
@@ -24,7 +26,7 @@ Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the applicat
 
 - **Live fuzzy search** across command names, descriptions, tags, and command text.
 - **A two-panel workspace** with category tabs, favorites, usage counts, highlighted matches, and command details.
-- **Expandable command tree** for browsing categories and subcategories.
+- **Color-coded command tree** with visible branch connectors, expandable categories, and a contextual action menu.
 - **Reusable templates** with editable prompts and defaults, such as `{{branch:feature/new-work}}`.
 - **Create and edit snippets** in the interface; changes are saved immediately to your local TOML library.
 - **Copy or run commands** with captured output and usage tracking. Destructive patterns require an explicit confirmation.
@@ -49,7 +51,7 @@ snipbox --list
 snipbox --path
 ```
 
-On the first launch Snipbox creates `~/.snipbox/commands.toml` with 40 English starter commands: 12 Git, 10 PowerShell, and 6 each for Docker, Linux/Bash, and Network. Every command has a category, subcategory, description, tags, and command text. You can edit the file in any text editor, or use **Ctrl+A** and **Ctrl+E** inside Snipbox.
+On the first launch Snipbox creates `~/.snipbox/commands.toml` with 60 English starter commands: 16 Git, 14 PowerShell, and 10 each for Docker, Linux/Bash, and Network. The collection covers everyday source control, Windows administration, containers, Linux troubleshooting, and network diagnostics. Each entry has a category, subcategory, practical description, searchable tags, and a command you can adapt with template variables. You can edit the file in any text editor, or use **Ctrl+A** and **Ctrl+E** inside Snipbox. Existing libraries are upgraded by adding missing starter entries while preserving custom commands and saved preferences.
 
 ### Command templates
 
@@ -61,7 +63,7 @@ docker logs -f {{container:app}}
 git commit -m "{{message:Update files}}"
 ```
 
-Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command before running it, so you can review the exact command. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` open an extra confirmation prompt.
+Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command before running it, so you can review the exact command. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` open an extra confirmation prompt. The warning adds a review step; it does not sandbox a command or limit its permissions.
 
 ## Keyboard shortcuts
 
@@ -71,6 +73,7 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | Type | Search the library |
 | `Enter` | Copy the selected command |
 | `M` | Open actions for the selected command |
+| Right-click | Open actions for the command under the pointer |
 | `Ctrl+R` | Fill template values and run |
 | `Tab` | Cycle through categories |
 | `Ctrl+A` | Create a command |

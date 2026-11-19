@@ -130,6 +130,49 @@ func listStart(selected, visible, total int) int {
 	return min(max(0, selected-visible+1), max(0, total-visible))
 }
 
+func treeBranch(rows []treeRow, index int) string {
+	row := rows[index]
+	if row.Kind == "subcategory" {
+		for i := index + 1; i < len(rows); i++ {
+			if rows[i].Kind == "category" || (rows[i].Kind == "subcategory" && rows[i].Category == row.Category) {
+				if rows[i].Kind == "subcategory" {
+					return "├─"
+				}
+				break
+			}
+		}
+		return "└─"
+	}
+	if row.Kind != "command" {
+		return ""
+	}
+	lastCommand := true
+	laterSubcategory := false
+	for i := index + 1; i < len(rows); i++ {
+		next := rows[i]
+		if next.Kind == "category" || (next.Kind == "subcategory" && next.Category != row.Category) {
+			break
+		}
+		if next.Kind == "subcategory" {
+			laterSubcategory = next.Category == row.Category
+			break
+		}
+		if next.Kind == "command" && next.Category == row.Category && next.Subcategory == row.Subcategory {
+			lastCommand = false
+			break
+		}
+	}
+	spine := "   "
+	if laterSubcategory {
+		spine = "│  "
+	}
+	branch := "├─"
+	if lastCommand {
+		branch = "└─"
+	}
+	return spine + branch
+}
+
 func (m Model) commandList(width, height int) string {
 	var b strings.Builder
 	rows := m.matches()
@@ -171,7 +214,7 @@ func (m Model) commandList(width, height int) string {
 				if m.subcategoryExpanded[path] || m.Query != "" {
 					arrow = "\u25be"
 				}
-				label := "  " + arrow + " " + row.Subcategory
+				label := "  " + treeBranch(tree, i) + " " + arrow + " " + row.Subcategory
 				if selected {
 					line = SelectedRow.Width(width).Render(marker + label)
 				} else {
@@ -183,7 +226,7 @@ func (m Model) commandList(width, height int) string {
 				if command.Favorite {
 					star = "\u2605"
 				}
-				label := "    " + star + " " + command.Name
+				label := "  " + treeBranch(tree, i) + " " + star + " " + command.Name
 				usage := fmt.Sprintf("%dx", command.Usage)
 				labelWidth := max(1, width-lipgloss.Width(marker)-lipgloss.Width(usage)-1)
 				label = ansi.Truncate(label, labelWidth, "\u2026")
@@ -352,10 +395,12 @@ func (m Model) modalView() string {
 		return strings.Join([]string{
 			"About Snipbox",
 			"",
-			"Search commands by name, description, tags, or text.",
-			"The Rust engine ranks matches; Go powers the terminal interface.",
-			"Commands are saved in local TOML. Shell history is imported only on request.",
+			"Find and reuse reliable terminal commands.",
+			"Inspect, customize templates, then copy or run.",
+			"Rust fuzzy search. Go terminal UI. Your data stays local.",
+			"History import and Git sync are opt-in.",
 			"Created by Pavel Slepcov.",
+			"Press M or right-click for command actions.",
 			"",
 			"Press Esc to close.",
 		}, "\n")

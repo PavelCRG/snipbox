@@ -429,7 +429,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.Modal != "" || m.Width < 70 || m.Height < 18 || mouse.Action != tea.MouseActionPress || mouse.Button != tea.MouseButtonLeft {
+	if m.Modal != "" || m.Width < 70 || m.Height < 18 || mouse.Action != tea.MouseActionPress || (mouse.Button != tea.MouseButtonLeft && mouse.Button != tea.MouseButtonRight) {
 		return m, nil
 	}
 	leftWidth, _, _, _ := panelWidths(m.Width)
@@ -464,6 +464,11 @@ func (m Model) updateMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	m.Selected = index
 	m.syncDetails()
+	if mouse.Button == tea.MouseButtonRight {
+		if _, _, ok := m.selectedCommand(); ok {
+			return m, m.openActions()
+		}
+	}
 	return m, nil
 }
 

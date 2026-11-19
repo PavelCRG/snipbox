@@ -439,11 +439,43 @@ func TestMouseClickSelectsCommandAndRefreshesDetails(t *testing.T) {
 	}
 }
 
+func TestRightClickOpensActionsForClickedCommand(t *testing.T) {
+	model := New([]storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Create branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch -c topic"},
+	}, "")
+	model.Width, model.Height = 100, 30
+	model.subcategoryExpanded["Git\x00Branches & Merging"] = true
+	rows := model.treeRows()
+	rowIndex := -1
+	for i, row := range rows {
+		if row.Kind == "command" && row.Index == 1 {
+			rowIndex = i
+			break
+		}
+	}
+	if rowIndex < 0 {
+		t.Fatal("test command is not visible in the tree")
+	}
+	headerHeight := lipgloss.Height(model.headerView())
+	updated, _ := model.Update(tea.MouseMsg{X: 3, Y: headerHeight + 2 + rowIndex, Button: tea.MouseButtonRight, Action: tea.MouseActionPress})
+	model = updated.(Model)
+	if model.Modal != "actions" {
+		t.Fatalf("right click opened modal %q, want actions", model.Modal)
+	}
+	if _, command, ok := model.selectedCommand(); !ok || command.Name != "Create branch" {
+		t.Fatalf("right-clicked command = %#v/%t", command, ok)
+	}
+}
+
 func TestTreeUsesCategoryColorAndVisibleSelectionPointer(t *testing.T) {
 	previous := lipgloss.DefaultRenderer().ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(previous)
-	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model := New([]storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Create branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch -c topic"},
+	}, "")
 	model.Mode, model.Tab = "tree", "All"
 	rendered := model.commandList(64, 8)
 	if !strings.Contains(rendered, "48;2;255;158;100") {
@@ -452,6 +484,9 @@ func TestTreeUsesCategoryColorAndVisibleSelectionPointer(t *testing.T) {
 	selected := ansi.Strip(model.commandList(64, 8))
 	if !strings.Contains(selected, "▶") {
 		t.Fatalf("selected row is missing its visible pointer: %q", selected)
+	}
+	if !strings.Contains(selected, "├─") || !strings.Contains(selected, "└─") {
+		t.Fatalf("tree rows are missing visible branch connectors: %q", selected)
 	}
 }
 
@@ -805,7 +840,7 @@ func TestHelpAndAboutUseEnglishText(t *testing.T) {
 	model.Modal = "about"
 	model.Width, model.Height = 70, 18
 	view := model.modalView()
-	for _, text := range []string{"About Snipbox", "Rust engine", "Go powers the terminal interface", "local TOML", "imported only on request", "Created by Pavel Slepcov"} {
+	for _, text := range []string{"About Snipbox", "reliable terminal commands", "Rust fuzzy search", "Your data stays local", "History import and Git sync are opt-in", "right-click for command actions", "Created by Pavel Slepcov"} {
 		if !strings.Contains(view, text) {
 			t.Errorf("About is missing %q: %q", text, view)
 		}

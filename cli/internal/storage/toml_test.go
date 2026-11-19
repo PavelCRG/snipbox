@@ -10,8 +10,8 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
 	commands := defaults()
-	if len(commands) != 40 {
-		t.Fatalf("starter library has %d commands; want 40", len(commands))
+	if len(commands) != 60 {
+		t.Fatalf("starter library has %d commands; want 60", len(commands))
 	}
 	counts := map[string]int{}
 	names := map[string]bool{}
@@ -35,12 +35,12 @@ func TestStarterLibraryIsCompleteAndCanBeSaved(t *testing.T) {
 			t.Errorf("incomplete starter command: %+v", command)
 		}
 	}
-	for _, name := range []string{"Stop a process", "Inspect file permissions", "Create a ZIP archive", "Inspect listening ports", "Search file contents", "List files recursively", "Restart a service"} {
+	for _, name := range []string{"Stop a process", "Inspect file permissions", "Create a ZIP archive", "Inspect listening ports", "Search file contents", "List files recursively", "Restart a service", "Publish the current branch", "Inspect a container", "Measure directory sizes", "Check a TLS endpoint"} {
 		if !names[name] {
 			t.Errorf("starter library is missing %q", name)
 		}
 	}
-	for category, want := range map[string]int{"Git": 12, "PowerShell": 10, "Docker": 6, "Linux/Bash": 6, "Network": 6} {
+	for category, want := range map[string]int{"Git": 16, "PowerShell": 14, "Docker": 10, "Linux/Bash": 10, "Network": 10} {
 		if counts[category] != want {
 			t.Errorf("%s has %d starter commands; want %d", category, counts[category], want)
 		}
@@ -68,8 +68,8 @@ func TestMigrationKeepsCustomCommandsAndSeedsNewLibrary(t *testing.T) {
 	if !changed {
 		t.Fatal("migration should update legacy categories and seed missing starter commands")
 	}
-	if len(commands) != 41 {
-		t.Fatalf("migrated command count = %d, want 41", len(commands))
+	if len(commands) != 61 {
+		t.Fatalf("migrated command count = %d, want 61", len(commands))
 	}
 	if commands[0].Category != "Linux/Bash" || commands[0].Subcategory != "Files & Search" {
 		t.Fatalf("legacy command was not migrated: %+v", commands[0])
