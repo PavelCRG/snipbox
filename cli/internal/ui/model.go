@@ -54,6 +54,8 @@ type keyMap struct {
 	Up, Down, PageUp, PageDown, Copy, Run, NextTab, PreviousTab, New, Edit, Favorite, Delete, History, Actions, Help, About, Quit key.Binding
 }
 
+var actionKeys = []string{"c", "r", "f", "e", "d"}
+
 func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Copy, k.Actions, k.NextTab, k.Help, k.Quit}
 }
@@ -719,6 +721,13 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			return m.runSelectedAction()
+		case "c", "r", "f", "e", "d":
+			for i, shortcut := range actionKeys {
+				if key.String() == shortcut {
+					m.actionSelected = i
+					return m.runSelectedAction()
+				}
+			}
 		}
 	case "help", "about":
 		if key.String() == "esc" || key.String() == "?" || key.String() == "enter" {

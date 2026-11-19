@@ -247,7 +247,7 @@ func TestActionsMenuDoesNotOpenDuringSearchAndFitsTerminal(t *testing.T) {
 	}
 	model.Modal = "actions"
 	view := model.View()
-	if !strings.Contains(view, "Command Actions") || !strings.Contains(view, "Copy to clipboard") {
+	if !strings.Contains(view, "Command Actions") || !strings.Contains(view, "[C] Copy to clipboard") || !strings.Contains(view, "[R] Run in terminal") {
 		t.Fatalf("actions modal is missing its title or choices: %q", view)
 	}
 	if lipgloss.Height(view) > model.Height {
@@ -257,6 +257,22 @@ func TestActionsMenuDoesNotOpenDuringSearchAndFitsTerminal(t *testing.T) {
 		if lipgloss.Width(line) > model.Width {
 			t.Fatalf("actions modal line width = %d, terminal width = %d", lipgloss.Width(line), model.Width)
 		}
+	}
+}
+
+func TestActionsMenuRunShortcutStartsVariableFlow(t *testing.T) {
+	model := New([]storage.Command{{Name: "Checkout branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch {{branch:main}}"}}, "")
+	for i, row := range model.treeRows() {
+		if row.Kind == "command" {
+			model.Selected = i
+			break
+		}
+	}
+	model.Modal = "actions"
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model = updated.(Model)
+	if model.Modal != "variables" || model.variableAction != "run" {
+		t.Fatalf("Run action shortcut modal/action = %q/%q, want variable prompt/run", model.Modal, model.variableAction)
 	}
 }
 

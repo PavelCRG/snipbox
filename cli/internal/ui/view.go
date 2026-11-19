@@ -295,13 +295,14 @@ func (m Model) modalView() string {
 		var b strings.Builder
 		b.WriteString("Command Actions\n\n")
 		for i, label := range m.actionLabels() {
+			label = "[" + strings.ToUpper(actionKeys[i]) + "] " + label
 			if i == m.actionSelected {
 				fmt.Fprintf(&b, "%s %s\n", Selected.Render("▶"), Selected.Render(label))
 			} else {
 				fmt.Fprintf(&b, "  %s\n", label)
 			}
 		}
-		b.WriteString("\nUp/Down move  •  Enter choose  •  Esc close")
+		b.WriteString("\nC/R/F/E/D action  •  Up/Down move  •  Enter choose  •  Esc close")
 		return b.String()
 	case "help":
 		return m.helpView.FullHelpView(keys.FullHelp())
