@@ -2,7 +2,7 @@
 
 # Snipbox
 
-### Your commands, ready when you are.
+### A personal library for terminal commands you reuse.
 
 Fuzzy-find, customize, and run the commands you use every day — from one focused terminal workspace.
 

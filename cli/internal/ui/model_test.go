@@ -45,6 +45,18 @@ func TestNewStartsInGitCommandBrowser(t *testing.T) {
 	}
 }
 
+func TestStartupScreenExplainsWhatSnipboxDoes(t *testing.T) {
+	model := New([]storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Description: "Review repository changes.", Command: "git status"}}, "")
+	model.Width, model.Height = 70, 18
+	view := ansi.Strip(model.View())
+	if !strings.Contains(view, "A personal library for reusable terminal commands") {
+		t.Fatal("startup view should explain Snipbox's purpose without opening a separate welcome screen")
+	}
+	if lipgloss.Height(model.headerView()) > 5 {
+		t.Fatalf("purpose line made the header too tall: %d rows", lipgloss.Height(model.headerView()))
+	}
+}
+
 func TestQuestionMarkSearchesUnlessSearchIsEmpty(t *testing.T) {
 	model := New(nil, "git")
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})

@@ -114,7 +114,8 @@ func (m Model) headerView() string {
 	search.Width = max(1, contentWidth-lipgloss.Width(search.Prompt)-lipgloss.Width(count)-2)
 	searchView := search.View()
 	second := lipgloss.JoinHorizontal(lipgloss.Top, searchView, strings.Repeat(" ", max(1, contentWidth-lipgloss.Width(searchView)-lipgloss.Width(count))), count)
-	content := lipgloss.JoinVertical(lipgloss.Left, ansi.Truncate(top, contentWidth, "…"), ansi.Truncate(second, contentWidth, "…"))
+	purpose := Muted.Render("A personal library for reusable terminal commands")
+	content := lipgloss.JoinVertical(lipgloss.Left, ansi.Truncate(top, contentWidth, "…"), ansi.Truncate(second, contentWidth, "…"), ansi.Truncate(purpose, contentWidth, "…"))
 	return Header.Width(innerWidth).Render(content)
 }
 
