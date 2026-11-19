@@ -315,6 +315,11 @@ func (m Model) detailsContent() string {
 	b.WriteString(SectionTitle.Render("Environment") + "\n")
 	b.WriteString("Shells: " + metadataText(command.Shells) + "\n")
 	b.WriteString("Platforms: " + metadataText(command.Platforms) + "\n")
+	workingDirectory := command.WorkingDirectory
+	if workingDirectory == "" {
+		workingDirectory = "Current directory"
+	}
+	b.WriteString("Working directory: " + workingDirectory + "\n")
 	tools := metadataText(command.Requirements)
 	if tools == "Not specified" {
 		tools = "None listed"
@@ -429,7 +434,7 @@ func (m Model) modalView() string {
 			"Run Command",
 			"",
 			"Shell: " + activeShellName(),
-			"Working directory: " + currentWorkingDirectory(),
+			"Working directory: " + m.runWorkingDirectory(),
 			"",
 			"Command:",
 			m.pending,
@@ -437,7 +442,7 @@ func (m Model) modalView() string {
 			"Enter runs the command  •  Esc cancels",
 		}, "\n")
 	case "form":
-		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command", "Shells (comma separated)", "Platforms (comma separated)", "Required tools (comma separated)"}
+		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command", "Shells (comma separated)", "Platforms (comma separated)", "Required tools (comma separated)", "Working directory (optional)"}
 		var b strings.Builder
 		if m.editIndex < 0 {
 			b.WriteString("New Command\n\n")
@@ -482,7 +487,7 @@ func (m Model) modalView() string {
 		b.WriteString("\nEnter moves forward  •  Ctrl+R runs  •  Esc cancels")
 		return b.String()
 	case "confirm":
-		return "Confirm Execution\n\n[!] Review this potentially destructive command.\n" + activeShellName() + " • " + currentWorkingDirectory() + "\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
+		return "Confirm Execution\n\n[!] Review this potentially destructive command.\n" + activeShellName() + " • " + m.runWorkingDirectory() + "\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
 	case "confirm_delete":
 		name := "the selected command"
 		if m.pendingDelete >= 0 && m.pendingDelete < len(m.Commands) {

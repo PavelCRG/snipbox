@@ -8,17 +8,18 @@ import (
 )
 
 type Command struct {
-	Name         string   `toml:"name" json:"name"`
-	Category     string   `toml:"category" json:"category"`
-	Subcategory  string   `toml:"subcategory,omitempty" json:"subcategory,omitempty"`
-	Description  string   `toml:"description" json:"description"`
-	Tags         []string `toml:"tags" json:"tags"`
-	Command      string   `toml:"command" json:"command"`
-	Shells       []string `toml:"shells,omitempty" json:"shells,omitempty"`
-	Platforms    []string `toml:"platforms,omitempty" json:"platforms,omitempty"`
-	Requirements []string `toml:"requirements,omitempty" json:"requirements,omitempty"`
-	Favorite     bool     `toml:"is_favorite" json:"is_favorite"`
-	Usage        uint64   `toml:"usage_count" json:"usage_count"`
+	Name             string   `toml:"name" json:"name"`
+	Category         string   `toml:"category" json:"category"`
+	Subcategory      string   `toml:"subcategory,omitempty" json:"subcategory,omitempty"`
+	Description      string   `toml:"description" json:"description"`
+	Tags             []string `toml:"tags" json:"tags"`
+	Command          string   `toml:"command" json:"command"`
+	Shells           []string `toml:"shells,omitempty" json:"shells,omitempty"`
+	Platforms        []string `toml:"platforms,omitempty" json:"platforms,omitempty"`
+	Requirements     []string `toml:"requirements,omitempty" json:"requirements,omitempty"`
+	WorkingDirectory string   `toml:"working_directory,omitempty" json:"working_directory,omitempty"`
+	Favorite         bool     `toml:"is_favorite" json:"is_favorite"`
+	Usage            uint64   `toml:"usage_count" json:"usage_count"`
 }
 
 type file struct {

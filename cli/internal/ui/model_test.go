@@ -315,6 +315,62 @@ func TestRunPreviewShowsTheCommandShellAndWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestConfiguredWorkingDirectoryIsResolvedAndValidated(t *testing.T) {
+	workingDirectory := t.TempDir()
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics", Command: "git status", WorkingDirectory: workingDirectory}}, "status")
+	model.Mode, model.Selected = "browse", 0
+	got, err := model.selectedWorkingDirectory()
+	if err != nil || got != workingDirectory {
+		t.Fatalf("selected working directory = %q, %v; want %q", got, err, workingDirectory)
+	}
+	model.Commands[0].WorkingDirectory = filepath.Join(workingDirectory, "missing")
+	if _, err := model.selectedWorkingDirectory(); err == nil {
+		t.Fatal("missing command working directory should be rejected")
+	}
+	model.Commands[0].WorkingDirectory = filepath.Join(workingDirectory, "file")
+	if err := os.WriteFile(model.Commands[0].WorkingDirectory, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.selectedWorkingDirectory(); err == nil {
+		t.Fatal("file path should not be accepted as a working directory")
+	}
+}
+
+func TestInvalidWorkingDirectoryPreventsExecutionAndUsageCount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics", Command: "git status", WorkingDirectory: filepath.Join(t.TempDir(), "missing")}}, "")
+	selectCommandRow(&model, 0)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil || model.Modal != "" || model.Commands[0].Usage != 0 || !strings.Contains(model.Status, "Could not use working directory") {
+		t.Fatalf("invalid directory run state = modal:%q usage:%d status:%q cmd:%v", model.Modal, model.Commands[0].Usage, model.Status, cmd)
+	}
+}
+
+func TestEditFormSavesWorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Echo", Category: "Git", Subcategory: "Basics", Description: "Print a message", Command: "echo hello"}}, "")
+	model.beginEdit()
+	if len(model.form) != 10 {
+		t.Fatalf("edit form has %d fields, want 10", len(model.form))
+	}
+	model.form[9] = t.TempDir()
+	model.saveForm()
+	saved, err := storage.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved[0].WorkingDirectory != model.form[9] {
+		t.Fatalf("saved working directory = %q, want %q", saved[0].WorkingDirectory, model.form[9])
+	}
+}
+
 func TestRunPreviewFitsMinimumTerminalAndKeepsActionsVisible(t *testing.T) {
 	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
 	model.Width, model.Height, model.pending, model.Modal = 70, 18, "git status --short --branch", "preview_run"
@@ -979,8 +1035,8 @@ func TestEditFormSavesRuntimeMetadata(t *testing.T) {
 	t.Setenv("HOME", home)
 	model := New([]storage.Command{{Name: "Echo", Category: "Git", Subcategory: "Basics", Description: "Print a message", Command: "echo hello", Tags: []string{"demo"}}}, "")
 	model.beginEdit()
-	if len(model.form) != 9 {
-		t.Fatalf("edit form has %d fields, want 9", len(model.form))
+	if len(model.form) != 10 {
+		t.Fatalf("edit form has %d fields, want 10", len(model.form))
 	}
 	model.form[6], model.form[7], model.form[8] = "PowerShell, Bash", "Windows, Linux", "Git"
 	model.formField = 8
@@ -997,11 +1053,11 @@ func TestEditFormSavesRuntimeMetadata(t *testing.T) {
 func TestSmallFormKeepsFocusedRuntimeFieldVisible(t *testing.T) {
 	model := New(nil, "")
 	model.Width, model.Height, model.Modal = 70, 18, "form"
-	model.form = []string{"Git", "Basics", "Name", "Description", "git", "echo ok", "Bash", "Linux", "Git"}
-	model.formField = 8
+	model.form = []string{"Git", "Basics", "Name", "Description", "git", "echo ok", "Bash", "Linux", "Git", "D:\\Projects\\demo"}
+	model.formField = 9
 	model.prepareFormInput()
 	view := ansi.Strip(model.View())
-	if !strings.Contains(view, "Required tools (comma separated)") || !strings.Contains(view, "Tab moves forward") {
+	if !strings.Contains(view, "Working directory (optional)") || !strings.Contains(view, "Tab moves forward") {
 		t.Fatalf("small form hid its focused field or actions: %q", view)
 	}
 }

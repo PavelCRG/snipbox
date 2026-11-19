@@ -136,3 +136,20 @@ func TestLoadAcceptsLegacyTOMLWithoutRuntimeMetadata(t *testing.T) {
 		t.Fatalf("legacy entry was not preserved with optional metadata: %+v (count %d)", commands[0], len(commands))
 	}
 }
+
+func TestWorkingDirectoryIsOptionalAndSurvivesTOMLRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	commands := []Command{{Name: "Project status", Category: "Git", Description: "Inspect this project", Command: "git status", WorkingDirectory: `D:\Projects\demo`}}
+	if err := Save(commands); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded[0].WorkingDirectory != commands[0].WorkingDirectory {
+		t.Fatalf("working directory = %q, want %q", loaded[0].WorkingDirectory, commands[0].WorkingDirectory)
+	}
+}

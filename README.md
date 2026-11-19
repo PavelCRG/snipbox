@@ -28,6 +28,7 @@ Created by **Pavel Slepcov**. Press **Ctrl+O** to open About inside the applicat
 - **A two-panel workspace** with category tabs, favorites, usage counts, highlighted matches, and command details.
 - **Color-coded command tree** with visible branch connectors, expandable categories, and a contextual action menu.
 - **Execution context** showing supported shells, operating systems, and required tools for each starter command.
+- **Per-command working directory** with a checked preview before a command starts.
 - **Reusable templates** with editable prompts and defaults, such as `{{branch:feature/new-work}}`.
 - **Create and edit snippets** in the interface; changes are saved immediately to your local TOML library.
 - **Copy or run commands** with captured output and usage tracking. Destructive patterns require an explicit confirmation.
@@ -64,7 +65,7 @@ docker logs -f {{container:app}}
 git commit -m "{{message:Update files}}"
 ```
 
-Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` require an additional confirmation. The warning adds a review step; it does not sandbox a command or limit its permissions.
+Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. A relative working directory is resolved from the folder where Snipbox was started. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` require an additional confirmation. The warning adds a review step; it does not sandbox a command or limit its permissions.
 
 ## Keyboard shortcuts
 

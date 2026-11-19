@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -377,7 +378,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if category == "All" {
 				category = "Git"
 			}
-			m.form = []string{category, "General", "", "", "", "", "", "", ""}
+			m.form = []string{category, "General", "", "", "", "", "", "", "", ""}
 			m.formField, m.editIndex, m.Modal = 0, -1, "form"
 			m.prepareFormInput()
 			return m, nil
@@ -557,7 +558,7 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if category == "All" {
 			category = "Git"
 		}
-		m.form = []string{category, "General", "", "", "", "", "", "", ""}
+		m.form = []string{category, "General", "", "", "", "", "", "", "", ""}
 		m.formField, m.editIndex, m.Modal = 0, -1, "form"
 		m.prepareFormInput()
 		return m, nil
@@ -687,7 +688,7 @@ func (m *Model) beginDelete() {
 
 func (m *Model) beginEdit() {
 	if index, command, ok := m.selectedCommand(); ok {
-		m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command, strings.Join(command.Shells, ", "), strings.Join(command.Platforms, ", "), strings.Join(command.Requirements, ", ")}
+		m.form = []string{command.Category, command.Subcategory, command.Name, command.Description, strings.Join(command.Tags, ", "), command.Command, strings.Join(command.Shells, ", "), strings.Join(command.Platforms, ", "), strings.Join(command.Requirements, ", "), command.WorkingDirectory}
 		m.formField, m.editIndex, m.Modal = 0, index, "form"
 		m.prepareFormInput()
 	}
@@ -995,6 +996,9 @@ func (m *Model) saveForm() tea.Cmd {
 		command.Platforms = splitList(m.form[7])
 		command.Requirements = splitList(m.form[8])
 	}
+	if len(m.form) > 9 {
+		command.WorkingDirectory = strings.TrimSpace(m.form[9])
+	}
 	commands := append([]storage.Command(nil), m.Commands...)
 	for i, existing := range commands {
 		if i != m.editIndex && strings.TrimSpace(existing.Command) == command.Command {
@@ -1229,14 +1233,12 @@ func activeShellName() string {
 	return "POSIX shell (/bin/sh)"
 }
 
-func currentWorkingDirectory() string {
-	if directory, err := os.Getwd(); err == nil {
-		return directory
-	}
-	return "Unavailable"
-}
-
 func (m *Model) execute(command string) tea.Cmd {
+	workingDirectory, err := m.selectedWorkingDirectory()
+	if err != nil {
+		m.Modal = ""
+		return m.failureCmd("Could not use working directory: " + err.Error())
+	}
 	usageErr := ""
 	if index, _, ok := m.selectedCommand(); ok {
 		if err := m.recordUsage(index); err != nil {
@@ -1244,7 +1246,40 @@ func (m *Model) execute(command string) tea.Cmd {
 		}
 	}
 	m.Modal = ""
-	return tea.ExecProcess(newShellCommand(command), func(err error) tea.Msg { return runMsg{err: err, usageErr: usageErr} })
+	process := newShellCommand(command)
+	process.Dir = workingDirectory
+	return tea.ExecProcess(process, func(err error) tea.Msg { return runMsg{err: err, usageErr: usageErr} })
+}
+
+func (m Model) selectedWorkingDirectory() (string, error) {
+	_, command, ok := m.selectedCommand()
+	if !ok {
+		return "", fmt.Errorf("select a command first")
+	}
+	workingDirectory := strings.TrimSpace(command.WorkingDirectory)
+	if workingDirectory == "" {
+		workingDirectory = "."
+	}
+	abs, err := filepath.Abs(workingDirectory)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory")
+	}
+	return abs, nil
+}
+
+func (m Model) runWorkingDirectory() string {
+	directory, err := m.selectedWorkingDirectory()
+	if err != nil {
+		return "Invalid: " + err.Error()
+	}
+	return directory
 }
 
 func newShellCommand(command string) *exec.Cmd {
