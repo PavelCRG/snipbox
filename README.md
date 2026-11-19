@@ -65,7 +65,7 @@ docker logs -f {{container:app}}
 git commit -m "{{message:Update files}}"
 ```
 
-Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. A relative working directory is resolved from the folder where Snipbox was started. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` require an additional confirmation. The warning adds a review step; it does not sandbox a command or limit its permissions.
+Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. A relative working directory is resolved from the folder where Snipbox was started. When the command exits, Snipbox reports its exit code. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` require an additional confirmation. The warning adds a review step; it does not sandbox a command or limit its permissions.
 
 ## Keyboard shortcuts
 

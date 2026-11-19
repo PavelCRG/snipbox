@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,9 +39,11 @@ type templateInfo struct {
 }
 
 type runMsg struct {
-	output   string
-	err      error
-	usageErr string
+	output      string
+	err         error
+	usageErr    string
+	exitCode    int
+	hasExitCode bool
 }
 
 type clearStatusMsg string
@@ -288,12 +291,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runMsg:
 		if v.err != nil {
 			message := "Command failed: " + v.err.Error() + " " + truncate(strings.TrimSpace(v.output), 100)
+			if v.hasExitCode {
+				message += fmt.Sprintf(" (Exit code: %d)", v.exitCode)
+			}
 			if v.usageErr != "" {
 				message += " · Usage count was not saved"
 			}
 			return m, m.failureCmd(strings.TrimSpace(message))
 		}
 		status := string(rune(0x2713)) + " Command completed"
+		if v.hasExitCode {
+			status += fmt.Sprintf(" (Exit code: %d)", v.exitCode)
+		}
 		if output := strings.TrimSpace(v.output); output != "" {
 			status += ": " + truncate(output, 100)
 		}
@@ -1248,7 +1257,21 @@ func (m *Model) execute(command string) tea.Cmd {
 	m.Modal = ""
 	process := newShellCommand(command)
 	process.Dir = workingDirectory
-	return tea.ExecProcess(process, func(err error) tea.Msg { return runMsg{err: err, usageErr: usageErr} })
+	return tea.ExecProcess(process, func(err error) tea.Msg {
+		exitCode, hasExitCode := processExitCode(err)
+		return runMsg{err: err, usageErr: usageErr, exitCode: exitCode, hasExitCode: hasExitCode}
+	})
+}
+
+func processExitCode(err error) (int, bool) {
+	if err == nil {
+		return 0, true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), true
+	}
+	return 0, false
 }
 
 func (m Model) selectedWorkingDirectory() (string, error) {

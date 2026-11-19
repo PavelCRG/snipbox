@@ -857,6 +857,28 @@ func TestRunStatusClearsAfterStandardNoticeDuration(t *testing.T) {
 	}
 }
 
+func TestRunStatusReportsProcessExitCode(t *testing.T) {
+	model := New(nil, "")
+	updated, _ := model.Update(runMsg{err: os.ErrInvalid, exitCode: 7, hasExitCode: true})
+	if !strings.Contains(updated.(Model).Status, "Exit code: 7") {
+		t.Fatalf("failed command status omits exit code: %q", updated.(Model).Status)
+	}
+	updated, _ = model.Update(runMsg{output: "complete", exitCode: 0, hasExitCode: true})
+	if !strings.Contains(updated.(Model).Status, "Exit code: 0") {
+		t.Fatalf("successful command status omits exit code: %q", updated.(Model).Status)
+	}
+}
+
+func TestProcessExitCodeReadsSuccessfulAndFailedShellResults(t *testing.T) {
+	if code, ok := processExitCode(nil); !ok || code != 0 {
+		t.Fatalf("successful process exit = %d/%t, want 0/true", code, ok)
+	}
+	err := newShellCommand("exit 7").Run()
+	if code, ok := processExitCode(err); !ok || code != 7 {
+		t.Fatalf("failed process exit = %d/%t, want 7/true (error: %v)", code, ok, err)
+	}
+}
+
 func TestUsageRecorderPersistsSharedCopyAndRunCount(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("USERPROFILE", home)
