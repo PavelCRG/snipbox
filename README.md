@@ -87,6 +87,21 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 
 Snipbox stores commands, tags, favorites, and usage counts in `~/.snipbox/commands.toml`. The file is written through a temporary file and rename, and is readable by ordinary TOML tools. Shell history is read locally when you choose **Ctrl+H**; Snipbox does not transmit it.
 
+Back up the library by copying that TOML file somewhere safe. On Linux or macOS:
+
+```sh
+cp ~/.snipbox/commands.toml ~/.snipbox/commands.toml.backup
+cp ~/.snipbox/commands.toml.backup ~/.snipbox/commands.toml  # restore
+```
+
+On Windows PowerShell:
+
+```powershell
+$library = Join-Path $HOME '.snipbox\commands.toml'
+Copy-Item $library "$library.backup"
+Copy-Item "$library.backup" $library  # restore
+```
+
 To sync the library with a Git remote, initialize the Snipbox data directory and add your remote once:
 
 ```sh

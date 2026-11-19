@@ -1,0 +1,55 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
+
+      - if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: make mingw-w64-x86_64-gcc
+
+      - name: Build, test, and vet (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+          export CC=x86_64-w64-mingw32-gcc
+          cargo build --release --target x86_64-pc-windows-gnu --manifest-path engine/Cargo.toml
+          cd cli
+          go test ./...
+          go vet ./...
+          mkdir -p ../bin
+          go build -trimpath -ldflags="-s -w -linkmode external -extldflags '-static'" -o ../bin/snipbox.exe .
+
+      - name: Build, test, and vet (Linux and macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          make build
+          cd cli
+          go test ./...
+          go vet ./...
+
+      - name: Test Rust engine
+        run: cargo test --manifest-path engine/Cargo.toml

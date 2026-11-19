@@ -35,8 +35,9 @@ type templateInfo struct {
 }
 
 type runMsg struct {
-	output string
-	err    error
+	output   string
+	err      error
+	usageErr string
 }
 
 type clearStatusMsg string
@@ -109,9 +110,12 @@ type Model struct {
 	helpView      help.Model
 
 	form                []string
+	formErrors          map[int]string
 	formField           int
 	editIndex           int
+	duplicateIndex      int
 	history             []string
+	pendingImport       string
 	variables           []string
 	values              map[string]string
 	varField            int
@@ -151,7 +155,7 @@ func New(commands []storage.Command, query string) Model {
 	}
 	model := Model{
 		Commands: commands, Query: query, Tab: tab, Mode: mode, editIndex: -1,
-		pendingDelete:    -1,
+		pendingDelete: -1, duplicateIndex: -1,
 		categoryExpanded: expanded, subcategoryExpanded: subcategoryExpanded,
 		searchInput: search, formInput: textinput.New(), variableInput: textinput.New(),
 		detailsView: viewport.New(1, 1), historyView: viewport.New(1, 1), helpView: help.New(),
@@ -280,15 +284,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncHistory()
 	case runMsg:
 		if v.err != nil {
-			m.Status = "Command failed: " + v.err.Error() + " " + truncate(strings.TrimSpace(v.output), 100)
-			return m, nil
+			message := "Command failed: " + v.err.Error() + " " + truncate(strings.TrimSpace(v.output), 100)
+			if v.usageErr != "" {
+				message += " · Usage count was not saved"
+			}
+			return m, m.failureCmd(strings.TrimSpace(message))
 		}
 		status := string(rune(0x2713)) + " Command completed"
 		if output := strings.TrimSpace(v.output); output != "" {
 			status += ": " + truncate(output, 100)
 		}
-		m.Status = status
-		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearStatusMsg(status) })
+		if v.usageErr != "" {
+			status += " · Usage count was not saved"
+		}
+		return m, m.noticeCmd(status)
 	case clearStatusMsg:
 		if string(v) == m.Status {
 			m.Status = ""
@@ -303,9 +312,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch v.String() {
 		case "esc":
 			if m.Query != "" {
+				selected := m.selectedCommandIndex()
 				m.Query = ""
 				m.searchInput.SetValue("")
-				m.Selected = 0
+				m.restoreTreeSelection(selected)
 				m.syncDetails()
 				return m, nil
 			}
@@ -343,17 +353,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "m":
 			if m.Query == "" {
-				m.openActions()
-				return m, nil
+				return m, m.openActions()
 			}
 		case "enter":
-			_, command, ok := m.selectedCommand()
+			index, command, ok := m.selectedCommand()
 			if ok {
 				if err := clipboard.WriteAll(command.Command); err != nil {
-					m.Status = "Clipboard error: " + err.Error()
+					return m, m.failureCmd("Clipboard error: " + err.Error())
 				} else {
-					cmd := m.successCmd("[OK] Copied to clipboard!")
-					return m, cmd
+					return m, m.recordCopy(index)
 				}
 			}
 			return m, nil
@@ -380,20 +388,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+h":
 			m.history = history.Recent()
 			if len(m.history) == 0 {
-				m.Status = "No shell history found"
+				return m, m.failureCmd("No shell history found")
 			} else {
 				m.Selected, m.Modal = 0, "history"
 				m.syncHistory()
 			}
 			return m, nil
 		}
+		selected := m.selectedCommandIndex()
 		var cmd tea.Cmd
 		m.searchInput, cmd = m.searchInput.Update(v)
 		m.Query = m.searchInput.Value()
 		if m.Query != "" {
 			m.Mode = "tree"
 		}
-		m.Selected = 0
+		m.restoreTreeSelection(selected)
 		m.syncDetails()
 		return m, cmd
 	default:
@@ -430,9 +439,10 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		if m.Query != "" {
+			selected := m.selectedCommandIndex()
 			m.Query = ""
 			m.searchInput.SetValue("")
-			m.Selected = 0
+			m.restoreTreeSelection(selected)
 			m.syncDetails()
 			return m, nil
 		}
@@ -514,7 +524,7 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+h":
 		m.history = history.Recent()
 		if len(m.history) == 0 {
-			m.Status = "No shell history found"
+			return m, m.failureCmd("No shell history found")
 		} else {
 			m.Selected, m.Modal = 0, "history"
 			m.syncHistory()
@@ -530,24 +540,23 @@ func (m Model) updateTree(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "m":
 		if m.Query == "" {
-			m.openActions()
-			return m, nil
+			return m, m.openActions()
 		}
 	}
+	selected := m.selectedCommandIndex()
 	var cmd tea.Cmd
 	m.searchInput, cmd = m.searchInput.Update(key)
 	m.Query = m.searchInput.Value()
 	if m.Query != "" {
 		m.Mode = "tree"
 	}
-	m.Selected = 0
+	m.restoreTreeSelection(selected)
 	m.syncDetails()
 	return m, cmd
 }
 
-func (m *Model) setSuccess(value string) { m.Status = value }
-
 func (m *Model) cycleTab(previous bool) {
+	selected := m.selectedCommandIndex()
 	tabs := append([]string{"All"}, storage.Categories()...)
 	for i, tab := range tabs {
 		if tab == m.Tab {
@@ -559,8 +568,48 @@ func (m *Model) cycleTab(previous bool) {
 			break
 		}
 	}
-	m.Selected = 0
+	m.restoreTreeSelection(selected)
 	m.syncDetails()
+}
+
+func (m Model) selectedCommandIndex() int {
+	if index, _, ok := m.selectedCommand(); ok {
+		return index
+	}
+	return -1
+}
+
+func (m *Model) restoreTreeSelection(preferred int) {
+	if preferred >= 0 && preferred < len(m.Commands) && (m.Tab == "All" || m.Commands[preferred].Category == m.Tab) {
+		m.selectTreeCommand(preferred)
+		if row, ok := m.selectedTreeRow(); ok && row.Kind == "command" && row.Index == preferred {
+			return
+		}
+	}
+	for _, hit := range m.matches() {
+		m.selectTreeCommand(hit.Index)
+		if row, ok := m.selectedTreeRow(); ok && row.Kind == "command" && row.Index == hit.Index {
+			return
+		}
+	}
+	m.Selected = 0
+}
+
+func (m *Model) selectTreeCommand(index int) {
+	if index < 0 || index >= len(m.Commands) {
+		return
+	}
+	command := m.Commands[index]
+	if m.Tab == "All" {
+		m.categoryExpanded[command.Category] = true
+	}
+	m.subcategoryExpanded[command.Category+"\x00"+command.Subcategory] = true
+	for i, row := range m.treeRows() {
+		if row.Kind == "command" && row.Index == index {
+			m.Selected = i
+			return
+		}
+	}
 }
 
 func (m *Model) toggleFavorite() tea.Cmd {
@@ -571,8 +620,7 @@ func (m *Model) toggleFavorite() tea.Cmd {
 	m.Commands[index].Favorite = !m.Commands[index].Favorite
 	if err := storage.Save(m.Commands); err != nil {
 		m.Commands[index].Favorite = !m.Commands[index].Favorite
-		m.Status = "Could not save favorite: " + err.Error()
-		return nil
+		return m.failureCmd("Could not save favorite: " + err.Error())
 	}
 	if m.Commands[index].Favorite {
 		return m.successCmd("[OK] Added to favorites")
@@ -597,12 +645,12 @@ func (m *Model) beginEdit() {
 	}
 }
 
-func (m *Model) openActions() {
+func (m *Model) openActions() tea.Cmd {
 	if _, _, ok := m.selectedCommand(); !ok {
-		m.Status = "Select a command to view its actions"
-		return
+		return m.failureCmd("Select a command to view its actions")
 	}
 	m.actionSelected, m.Modal = 0, "actions"
+	return nil
 }
 
 func (m Model) actionLabels() []string {
@@ -643,10 +691,9 @@ func (m *Model) deletePending() tea.Cmd {
 	commands := append([]storage.Command(nil), m.Commands[:m.pendingDelete]...)
 	commands = append(commands, m.Commands[m.pendingDelete+1:]...)
 	if err := storage.Save(commands); err != nil {
-		m.Status = "Could not delete command: " + err.Error()
 		m.Modal = ""
 		m.pendingDelete = -1
-		return nil
+		return m.failureCmd("Could not delete command: " + err.Error())
 	}
 	m.Commands = commands
 	m.Modal = ""
@@ -659,8 +706,35 @@ func (m *Model) deletePending() tea.Cmd {
 }
 
 func (m *Model) successCmd(value string) tea.Cmd {
-	m.setSuccess(value)
+	return m.noticeCmd(value)
+}
+
+func (m *Model) failureCmd(value string) tea.Cmd {
+	return m.noticeCmd(value)
+}
+
+func (m *Model) noticeCmd(value string) tea.Cmd {
+	m.Status = value
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return clearStatusMsg(value) })
+}
+
+func (m *Model) recordUsage(index int) error {
+	if index < 0 || index >= len(m.Commands) {
+		return nil
+	}
+	m.Commands[index].Usage++
+	if err := storage.Save(m.Commands); err != nil {
+		m.Commands[index].Usage--
+		return err
+	}
+	return nil
+}
+
+func (m *Model) recordCopy(index int) tea.Cmd {
+	if err := m.recordUsage(index); err != nil {
+		return m.failureCmd("Copied to clipboard, but usage count could not be saved")
+	}
+	return m.successCmd("[OK] Copied to clipboard!")
 }
 
 func (m *Model) layout() {
@@ -729,6 +803,13 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case "duplicate":
+		switch key.String() {
+		case "esc":
+			m.Modal = "form"
+		case "enter":
+			return m, m.openDuplicate()
+		}
 	case "help", "about":
 		if key.String() == "esc" || key.String() == "?" || key.String() == "enter" {
 			m.Modal = ""
@@ -751,29 +832,16 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.historyView, _ = m.historyView.Update(key)
 		case "enter":
 			if len(m.history) > 0 {
-				line := m.history[m.Selected]
-				for _, command := range m.Commands {
-					if command.Command == line {
-						m.Modal = ""
-						return m, m.successCmd("[OK] Command already in library")
-					}
-				}
-				category := m.Tab
-				if category == "All" {
-					category = "Linux/Bash"
-				}
-				commands := append([]storage.Command(nil), m.Commands...)
-				commands = append(commands, storage.Command{Name: "History - " + truncate(line, 32), Category: category, Subcategory: "Imported History", Description: "Imported from shell history", Tags: []string{"history"}, Command: line})
-				if err := storage.Save(commands); err != nil {
-					m.Status = "Could not save command: " + err.Error()
-				} else {
-					m.Commands = commands
-					m.Modal = ""
-					cmd := m.successCmd(string(rune(0x2713)) + " Imported command from shell history")
-					return m, cmd
-				}
-				m.Modal = ""
+				m.pendingImport = m.history[m.Selected]
+				m.Modal = "history_preview"
 			}
+		}
+	case "history_preview":
+		switch key.String() {
+		case "esc":
+			m.Modal = "history"
+		case "enter":
+			return m, m.importPendingHistory()
 		}
 	case "form":
 		switch key.String() {
@@ -781,6 +849,7 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.Modal = ""
 		case "tab", "enter":
 			m.form[m.formField] = m.formInput.Value()
+			delete(m.formErrors, m.formField)
 			if m.formField < len(m.form)-1 {
 				m.formField++
 				m.prepareFormInput()
@@ -790,18 +859,21 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "shift+tab":
 			m.form[m.formField] = m.formInput.Value()
+			delete(m.formErrors, m.formField)
 			if m.formField > 0 {
 				m.formField--
 				m.prepareFormInput()
 			}
 		case "ctrl+s":
 			m.form[m.formField] = m.formInput.Value()
+			delete(m.formErrors, m.formField)
 			cmd := m.saveForm()
 			return m, cmd
 		default:
 			var cmd tea.Cmd
 			m.formInput, cmd = m.formInput.Update(key)
 			m.form[m.formField] = m.formInput.Value()
+			delete(m.formErrors, m.formField)
 			return m, cmd
 		}
 	case "variables":
@@ -827,7 +899,7 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key.String() {
 		case "esc", "n":
 			m.Modal = ""
-			m.Status = "Command canceled"
+			return m, m.noticeCmd("Command canceled")
 		case "y", "enter":
 			cmd := m.execute(m.pending)
 			return m, cmd
@@ -855,8 +927,8 @@ func (m *Model) prepareVariableInput() {
 }
 
 func (m *Model) saveForm() tea.Cmd {
-	if strings.TrimSpace(m.form[2]) == "" || strings.TrimSpace(m.form[5]) == "" {
-		m.Status = "Name and command are required"
+	m.formErrors = m.validateForm()
+	if len(m.formErrors) > 0 {
 		return nil
 	}
 	command := storage.Command{Name: strings.TrimSpace(m.form[2]), Category: strings.TrimSpace(m.form[0]), Subcategory: strings.TrimSpace(m.form[1]), Description: strings.TrimSpace(m.form[3]), Command: strings.TrimSpace(m.form[5])}
@@ -866,6 +938,12 @@ func (m *Model) saveForm() tea.Cmd {
 		}
 	}
 	commands := append([]storage.Command(nil), m.Commands...)
+	for i, existing := range commands {
+		if i != m.editIndex && strings.TrimSpace(existing.Command) == command.Command {
+			m.duplicateIndex, m.Modal = i, "duplicate"
+			return nil
+		}
+	}
 	if m.editIndex >= 0 {
 		command.Favorite = commands[m.editIndex].Favorite
 		command.Usage = commands[m.editIndex].Usage
@@ -874,12 +952,91 @@ func (m *Model) saveForm() tea.Cmd {
 		commands = append(commands, command)
 	}
 	if err := storage.Save(commands); err != nil {
-		m.Status = "Could not save command: " + err.Error()
-		return nil
+		return m.failureCmd("Could not save command: " + err.Error())
 	}
 	m.Commands = commands
+	m.formErrors = nil
 	m.Modal = ""
 	return m.successCmd("[OK] Command saved")
+}
+
+func (m Model) validateForm() map[int]string {
+	errors := make(map[int]string)
+	if len(m.form) < 6 {
+		errors[0] = "Form data is incomplete"
+		return errors
+	}
+	category := strings.TrimSpace(m.form[0])
+	validCategory := false
+	for _, known := range storage.Categories() {
+		if category == known {
+			validCategory = true
+			break
+		}
+	}
+	if !validCategory {
+		errors[0] = "Use a listed section"
+	}
+	if strings.TrimSpace(m.form[1]) == "" {
+		errors[1] = "Subcategory is required"
+	}
+	if strings.TrimSpace(m.form[2]) == "" {
+		errors[2] = "Name is required"
+	}
+	if strings.TrimSpace(m.form[3]) == "" {
+		errors[3] = "Description is required"
+	}
+	command := strings.TrimSpace(m.form[5])
+	if command == "" {
+		errors[5] = "Command is required"
+	} else if _, err := bridge.Parse(command); err != nil {
+		errors[5] = "Command template is invalid: " + err.Error()
+	}
+	return errors
+}
+
+func (m *Model) openDuplicate() tea.Cmd {
+	index := m.duplicateIndex
+	m.Modal = ""
+	m.duplicateIndex = -1
+	m.Query = ""
+	m.searchInput.SetValue("")
+	m.Mode = "tree"
+	if index >= 0 && index < len(m.Commands) {
+		m.Tab = m.Commands[index].Category
+		m.selectTreeCommand(index)
+		m.syncDetails()
+		return m.successCmd("Opened the existing command")
+	}
+	return nil
+}
+
+func (m *Model) importPendingHistory() tea.Cmd {
+	line := strings.TrimSpace(m.pendingImport)
+	if line == "" {
+		m.Modal = "history"
+		return nil
+	}
+	for _, command := range m.Commands {
+		if strings.TrimSpace(command.Command) == line {
+			m.Modal = "history"
+			return m.noticeCmd("This command is already in your library")
+		}
+	}
+	category := m.Tab
+	if category == "All" {
+		category = "Linux/Bash"
+	}
+	commands := append([]storage.Command(nil), m.Commands...)
+	commands = append(commands, storage.Command{Name: "History - " + truncate(line, 32), Category: category, Subcategory: "Imported History", Description: "Imported from shell history", Tags: []string{"history"}, Command: line})
+	if err := storage.Save(commands); err != nil {
+		m.Modal = "history_preview"
+		return m.failureCmd("Could not save command: " + err.Error())
+	}
+	m.Commands = commands
+	m.pendingImport = ""
+	m.Modal = ""
+	return m.successCmd("[OK] Imported command from shell history")
 }
 
 func (m *Model) beginRun() tea.Cmd {
@@ -894,8 +1051,7 @@ func (m *Model) beginRun() tea.Cmd {
 		err = json.Unmarshal([]byte(parsed), &info)
 	}
 	if err != nil {
-		m.Status = "Could not parse command template: " + err.Error()
-		return nil
+		return m.failureCmd("Could not parse command template: " + err.Error())
 	}
 	if len(info.Variables) > 0 {
 		m.variableAction = "run"
@@ -915,7 +1071,7 @@ func (m *Model) beginRun() tea.Cmd {
 
 func (m *Model) beginCopy() tea.Cmd {
 	m.variableAction = "copy"
-	_, command, ok := m.selectedCommand()
+	index, command, ok := m.selectedCommand()
 	if !ok {
 		return nil
 	}
@@ -925,8 +1081,7 @@ func (m *Model) beginCopy() tea.Cmd {
 		err = json.Unmarshal([]byte(parsed), &info)
 	}
 	if err != nil {
-		m.Status = "Could not parse command template: " + err.Error()
-		return nil
+		return m.failureCmd("Could not parse command template: " + err.Error())
 	}
 	if len(info.Variables) > 0 {
 		m.variableAction = "copy"
@@ -941,49 +1096,43 @@ func (m *Model) beginCopy() tea.Cmd {
 		return nil
 	}
 	if err := clipboard.WriteAll(command.Command); err != nil {
-		m.Status = "Clipboard error: " + err.Error()
-		return nil
+		return m.failureCmd("Clipboard error: " + err.Error())
 	}
-	return m.successCmd("[OK] Copied to clipboard!")
+	return m.recordCopy(index)
 }
 
 func (m *Model) finishVariables() tea.Cmd {
-	_, command, ok := m.selectedCommand()
+	index, command, ok := m.selectedCommand()
 	if !ok {
 		m.Modal = ""
 		return nil
 	}
 	rendered, err := bridge.Render(command.Command, m.values)
 	if err != nil {
-		m.Status = "Could not render command: " + err.Error()
 		m.Modal = ""
-		return nil
+		return m.failureCmd("Could not render command: " + err.Error())
 	}
 	if err = json.Unmarshal([]byte(rendered), &m.pending); err != nil {
-		m.Status = "Could not decode rendered command"
 		m.Modal = ""
-		return nil
+		return m.failureCmd("Could not decode rendered command")
 	}
 	var info templateInfo
 	parsed, err := bridge.Parse(m.pending)
 	if err != nil {
-		m.Status = "Could not check command safety: " + err.Error()
 		m.Modal = ""
-		return nil
+		return m.failureCmd("Could not check command safety: " + err.Error())
 	}
 	if err = json.Unmarshal([]byte(parsed), &info); err != nil {
-		m.Status = "Could not check command safety: " + err.Error()
 		m.Modal = ""
-		return nil
+		return m.failureCmd("Could not check command safety: " + err.Error())
 	}
 	if m.variableAction == "copy" {
 		m.variableAction = ""
 		m.Modal = ""
 		if err := clipboard.WriteAll(m.pending); err != nil {
-			m.Status = "Clipboard error: " + err.Error()
-			return nil
+			return m.failureCmd("Clipboard error: " + err.Error())
 		}
-		return m.successCmd("[OK] Copied to clipboard!")
+		return m.recordCopy(index)
 	}
 	m.variableAction = ""
 	return m.confirmOrRun(m.pending, info.Dangerous)
@@ -999,14 +1148,14 @@ func (m *Model) confirmOrRun(command string, dangerous bool) tea.Cmd {
 }
 
 func (m *Model) execute(command string) tea.Cmd {
+	usageErr := ""
 	if index, _, ok := m.selectedCommand(); ok {
-		m.Commands[index].Usage++
-		if err := storage.Save(m.Commands); err != nil {
-			m.Status = "Could not save usage count: " + err.Error()
+		if err := m.recordUsage(index); err != nil {
+			usageErr = err.Error()
 		}
 	}
 	m.Modal = ""
-	return tea.ExecProcess(newShellCommand(command), func(err error) tea.Msg { return runMsg{err: err} })
+	return tea.ExecProcess(newShellCommand(command), func(err error) tea.Msg { return runMsg{err: err, usageErr: usageErr} })
 }
 
 func newShellCommand(command string) *exec.Cmd {

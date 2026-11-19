@@ -101,7 +101,16 @@ func (m Model) headerView() string {
 	top = ansi.Truncate(top, contentWidth, "…")
 	search := m.searchInput
 	search.Prompt = "> Search: "
-	count := Selected.Render(fmt.Sprintf("%d / %d", len(m.matches()), len(m.Commands)))
+	total := len(m.Commands)
+	if m.Tab != "All" {
+		total = 0
+		for _, command := range m.Commands {
+			if command.Category == m.Tab {
+				total++
+			}
+		}
+	}
+	count := Selected.Render(fmt.Sprintf("%d / %d · %s", len(m.matches()), total, m.Tab))
 	search.Width = max(1, contentWidth-lipgloss.Width(search.Prompt)-lipgloss.Width(count)-2)
 	searchView := search.View()
 	second := lipgloss.JoinHorizontal(lipgloss.Top, searchView, strings.Repeat(" ", max(1, contentWidth-lipgloss.Width(searchView)-lipgloss.Width(count))), count)
@@ -123,6 +132,15 @@ func (m Model) commandList(width, height int) string {
 	visibleRows := max(1, height-1) // The panel title occupies one row.
 	if m.Mode == "tree" {
 		tree := m.treeRows()
+		if len(tree) == 0 {
+			message := "No commands in your library."
+			if m.Query != "" {
+				message = "No commands match your search."
+			} else if len(m.Commands) > 0 {
+				message = "No commands in this category yet."
+			}
+			b.WriteString(Muted.Render(message))
+		}
 		start := min(max(0, m.Selected-visibleRows+1), max(0, len(tree)-visibleRows))
 		for i := start; i < min(start+visibleRows, len(tree)); i++ {
 			row := tree[i]
@@ -212,9 +230,21 @@ func (m Model) detailsPanel(width, height int) string {
 	}
 	viewport := m.detailsView
 	viewport.Width = max(1, width)
-	viewport.Height = max(1, height-1)
+	viewport.Height = max(1, height-2)
 	viewport.SetContent(wrapLines(details, max(1, width)))
-	return DetailPanel.Width(width + 2).Height(height).Render(SectionTitle.Render("Command Details") + "\n" + viewport.View())
+	content := SectionTitle.Render("Command Details") + "\n" + viewport.View()
+	if viewport.TotalLineCount() > viewport.Height {
+		hint := "↓ More details below"
+		if viewport.AtTop() {
+			hint = "↓ More details below"
+		} else if viewport.AtBottom() {
+			hint = "↑ More details above"
+		} else {
+			hint = "↑/↓ More details above and below"
+		}
+		content += "\n" + Muted.Render(hint)
+	}
+	return DetailPanel.Width(width + 2).Height(height).Render(content)
 }
 
 func (m Model) detailsContent() string {
@@ -294,6 +324,9 @@ func (m Model) modalView() string {
 	case "actions":
 		var b strings.Builder
 		b.WriteString("Command Actions\n\n")
+		if _, command, ok := m.selectedCommand(); ok {
+			b.WriteString(Muted.Render(command.Name+" · "+command.Category) + "\n\n")
+		}
 		for i, label := range m.actionLabels() {
 			label = "[" + strings.ToUpper(actionKeys[i]) + "] " + label
 			if i == m.actionSelected {
@@ -319,6 +352,8 @@ func (m Model) modalView() string {
 		}, "\n")
 	case "history":
 		return "Shell History\n\n" + m.historyView.View() + "\nEnter imports  •  Esc closes"
+	case "history_preview":
+		return "Review History Import\n\nCommand:\n" + m.pendingImport + "\n\nEnter saves to your library  •  Esc returns to history"
 	case "form":
 		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command"}
 		var b strings.Builder
@@ -327,12 +362,19 @@ func (m Model) modalView() string {
 		} else {
 			b.WriteString("Edit Command\n\n")
 		}
-		for i, l := range labels {
-			if i == m.formField {
-				fmt.Fprintf(&b, "┃ %s: %s\n", l, m.formInput.View())
-			} else if i < len(m.form) {
-				fmt.Fprintf(&b, "  %s: %s\n", l, m.form[i])
+		for i, label := range labels {
+			if i >= len(m.form) {
+				continue
 			}
+			prefix, value := "  ", m.form[i]
+			if i == m.formField {
+				prefix, value = "> ", m.formInput.View()
+			}
+			fmt.Fprintf(&b, "%s%s: %s", prefix, label, value)
+			if message := m.formErrors[i]; message != "" {
+				b.WriteString(Danger.Render("  ! " + message))
+			}
+			b.WriteByte('\n')
 		}
 		b.WriteString("\nTab moves forward  •  Ctrl+S saves  •  Esc cancels")
 		return b.String()
@@ -353,7 +395,17 @@ func (m Model) modalView() string {
 	case "confirm":
 		return "Confirm Execution\n\n[!] Review this potentially destructive command:\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
 	case "confirm_delete":
-		return "Delete Command?\n\nThis permanently removes the selected command from your local library.\n\nPress Y or Enter to delete  •  N / Esc to cancel"
+		name := "the selected command"
+		if m.pendingDelete >= 0 && m.pendingDelete < len(m.Commands) {
+			name = m.Commands[m.pendingDelete].Name
+		}
+		return "Delete Command?\n\n" + name + " will be permanently removed from your local library.\n\nPress Y or Enter to delete  •  N / Esc to cancel"
+	case "duplicate":
+		if m.duplicateIndex >= 0 && m.duplicateIndex < len(m.Commands) {
+			command := m.Commands[m.duplicateIndex]
+			return "Command Already Saved\n\n" + command.Name + " · " + command.Category + "\n" + command.Command + "\n\nEnter opens the saved command  •  Esc returns to editing"
+		}
+		return "Command Already Saved\n\nEnter returns to editing  •  Esc closes"
 	}
 	return m.Modal
 }

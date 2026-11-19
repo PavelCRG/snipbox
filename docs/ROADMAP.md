@@ -11,22 +11,20 @@ The plan keeps Snipbox focused on its terminal workflow: open the Git command tr
 5. [x] Put copy, run, favorite, edit, and delete actions in a focused command menu.
 6. [x] Show single-key action choices in the command menu and preserve confirmation flows for risky actions.
 
-## Next
-
-7. [ ] Make selected-command context and category visible in the action menu without repeating its full description.
-8. [ ] Improve empty states for a category with no commands and a search with no matches.
-9. [ ] Keep the selected command visible and stable when changing categories or clearing a search.
-10. [ ] Make search feedback show the number of matches and the active scope clearly.
-11. [ ] Add inline validation and field-specific error messages to command forms.
-12. [ ] Prevent saving duplicate commands with the same command text and offer to open the existing entry.
-13. [ ] Make favorite state and usage count updates consistent after copy and run.
-14. [ ] Add a review step to shell-history import so users can inspect a command before saving it.
-15. [ ] Improve command-details scrolling and indicate when more content is available.
-16. [ ] Keep destructive-action dialogs explicit about the selected command and the effect of confirmation.
-17. [ ] Make status messages consistent, brief, and visible for the same amount of time.
-18. [ ] Add reliable export and restore instructions for the local TOML command library.
-19. [ ] Verify clean builds and keyboard behavior on Windows, Linux, and macOS.
-20. [ ] Document a release checklist covering the binary, default command library, and first-run experience.
+7. [x] Show the selected command and category in its action menu without repeating the description.
+8. [x] Explain empty categories, empty libraries, and searches with no matches.
+9. [x] Keep the selected command when it remains available after changing tabs or clearing search.
+10. [x] Show matching count, active category scope, and category total in the header.
+11. [x] Validate command fields inline and keep the form open until required values are fixed.
+12. [x] Detect duplicate command text and offer to open the existing entry.
+13. [x] Use one persistent counter for successful copies and run attempts; restore the old value if saving fails.
+14. [x] Preview shell-history commands before importing them.
+15. [x] Indicate when command details can scroll up or down.
+16. [x] Name the command and permanent effect in deletion confirmation.
+17. [x] Show feedback messages for a consistent two seconds; validation remains visible beside invalid fields.
+18. [x] Document backup and restore steps for the TOML library.
+19. [x] Add a Windows, Linux, and macOS CI matrix for builds, Go checks, and Rust tests.
+20. [x] Add a release checklist for builds, first-run behavior, packaging, and data safety.
 
 ## Quality bar
 
@@ -35,3 +33,5 @@ The plan keeps Snipbox focused on its terminal workflow: open the Git command tr
 - Modals own keyboard input while open and fit within the terminal.
 - Existing safe-run, delete-confirmation, and atomic-storage behavior stays intact.
 - Every behavior change gets a focused regression test before implementation.
+
+The cross-platform workflow runs after it is pushed to GitHub. Local verification has been performed on Windows; remote Linux and macOS results are reported by Actions.

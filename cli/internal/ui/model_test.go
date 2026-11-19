@@ -276,6 +276,132 @@ func TestActionsMenuRunShortcutStartsVariableFlow(t *testing.T) {
 	}
 }
 
+func TestActionsMenuShowsSelectedCommandContext(t *testing.T) {
+	model := New([]storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Modal = "actions"
+	view := model.modalView()
+	if !strings.Contains(view, "Working tree status") || !strings.Contains(view, "Git") {
+		t.Fatalf("actions menu lacks command context: %q", view)
+	}
+	if strings.Contains(view, "Show the current branch") {
+		t.Fatalf("actions menu repeats the command description: %q", view)
+	}
+}
+
+func TestTreeEmptyStatesAndScopedHeaderCount(t *testing.T) {
+	commands := []storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Containers", Category: "Docker", Subcategory: "Containers", Command: "docker ps"},
+	}
+	model := New(commands, "")
+	model.Width, model.Height = 100, 24
+	model.Tab = "Network"
+	if view := ansi.Strip(model.commandList(60, 8)); !strings.Contains(view, "No commands in this category yet.") {
+		t.Fatalf("empty category message = %q", view)
+	}
+	model.Tab, model.Query = "Git", "no-such-command"
+	model.searchInput.SetValue(model.Query)
+	if view := ansi.Strip(model.commandList(60, 8)); !strings.Contains(view, "No commands match your search.") {
+		t.Fatalf("empty search message = %q", view)
+	}
+	model.Query = ""
+	model.searchInput.SetValue("")
+	if header := ansi.Strip(model.headerView()); !strings.Contains(header, "1 / 1 · Git") {
+		t.Fatalf("category-scoped header count = %q", header)
+	}
+}
+
+func TestTabAndSearchClearKeepSelectedCommandWhenAvailable(t *testing.T) {
+	commands := []storage.Command{
+		{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"},
+		{Name: "Commit", Category: "Git", Subcategory: "Basics & Staging", Command: "git commit"},
+		{Name: "Processes", Category: "PowerShell", Subcategory: "Processes & Ports", Command: "Get-Process"},
+		{Name: "Containers", Category: "Docker", Subcategory: "Containers", Command: "docker ps"},
+	}
+	model := New(commands, "")
+	selectCommandRow(&model, 1)
+	model.cycleTab(true)
+	if _, command, ok := model.selectedCommand(); !ok || command.Name != "Commit" {
+		t.Fatalf("All tab lost selected command: %#v/%t", command, ok)
+	}
+	model.Tab = "Git"
+	model.cycleTab(false)
+	if _, command, ok := model.selectedCommand(); !ok || command.Name != "Processes" {
+		t.Fatalf("new category did not select its first command: %#v/%t", command, ok)
+	}
+	model.Tab = "Git"
+	model.Query, model.Tab = "status", "Git"
+	model.searchInput.SetValue("status")
+	selectCommandRow(&model, 0)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	if _, command, ok := model.selectedCommand(); !ok || command.Name != "Status" {
+		t.Fatalf("clearing search lost selected command: %#v/%t", command, ok)
+	}
+}
+
+func TestFormValidationKeepsDialogOpenAndMarksInvalidFields(t *testing.T) {
+	model := New(nil, "")
+	model.Width, model.Height, model.Modal = 80, 24, "form"
+	model.form = []string{"Unknown", "", "", "", "", ""}
+	model.formField = 5
+	model.prepareFormInput()
+	model.saveForm()
+	if model.Modal != "form" {
+		t.Fatalf("invalid form modal = %q, want form", model.Modal)
+	}
+	view := ansi.Strip(model.modalView())
+	if !strings.Contains(view, "Use a listed section") || !strings.Contains(view, "Command is required") {
+		t.Fatalf("form does not show field-level validation: %q", view)
+	}
+	model.Width, model.Height = 70, 18
+	view = model.View()
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > model.Width {
+			t.Fatalf("invalid form line width %d exceeds terminal width: %q", lipgloss.Width(line), line)
+		}
+	}
+	if !strings.Contains(view, "Esc cancels") {
+		t.Fatal("minimum-size form hides its cancel action after validation errors")
+	}
+}
+
+func TestDuplicateCommandOffersOpeningExistingEntry(t *testing.T) {
+	commands := []storage.Command{{Name: "Working tree status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}
+	model := New(commands, "")
+	model.Width, model.Height = 80, 24
+	model.form = []string{"Git", "Basics & Staging", "Status again", "Show status", "git", " git status "}
+	model.formField, model.editIndex, model.Modal = 5, -1, "form"
+	model.prepareFormInput()
+	model.formInput.SetValue(model.form[5])
+	model.saveForm()
+	if model.Modal != "duplicate" || len(model.Commands) != 1 {
+		t.Fatalf("duplicate save modal/count = %q/%d", model.Modal, len(model.Commands))
+	}
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.Modal != "" || model.Tab != "Git" || model.Query != "" {
+		t.Fatalf("opening duplicate modal/tab/query = %q/%q/%q", model.Modal, model.Tab, model.Query)
+	}
+	if _, command, ok := model.selectedCommand(); !ok || command.Name != "Working tree status" {
+		t.Fatalf("selected duplicate entry = %#v/%t", command, ok)
+	}
+}
+
+func selectCommandRow(model *Model, commandIndex int) {
+	for _, row := range model.treeRows() {
+		if row.Kind == "subcategory" {
+			model.subcategoryExpanded[row.Category+"\x00"+row.Subcategory] = true
+		}
+	}
+	for i, row := range model.treeRows() {
+		if row.Kind == "command" && row.Index == commandIndex {
+			model.Selected = i
+			return
+		}
+	}
+}
+
 func TestTreeSearchKeepsJAndKAvailableForTyping(t *testing.T) {
 	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
 	model.Mode = "tree"
@@ -325,6 +451,11 @@ func TestSuccessfulHistoryImportClosesModalAndPersistsOnce(t *testing.T) {
 	model.historyView.Width, model.historyView.Height = 40, 5
 	model.Selected = 0
 	model.syncHistory()
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.Modal != "history_preview" || len(model.Commands) != 1 {
+		t.Fatalf("history review modal/count = %q/%d, want preview without import", model.Modal, len(model.Commands))
+	}
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
 	if model.Modal != "" || cmd == nil {
@@ -363,6 +494,8 @@ func TestFailedHistoryImportDoesNotKeepUnsavedCommandInMemory(t *testing.T) {
 	model.Selected = 0
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
 	if len(model.Commands) != 0 || !strings.Contains(model.Status, "Could not save command") {
 		t.Fatalf("failed import commands/status = %#v/%q, want no in-memory command and a save error", model.Commands, model.Status)
 	}
@@ -376,9 +509,11 @@ func TestHistoryImportSkipsCommandAlreadyInLibrary(t *testing.T) {
 	model := New(commands, "")
 	model.Modal, model.history = "history", []string{"git status"}
 	model.Selected = 0
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if len(model.Commands) != 1 || model.Modal != "" || !strings.Contains(model.Status, "already in library") || cmd == nil {
+	if len(model.Commands) != 1 || model.Modal != "history" || !strings.Contains(model.Status, "already in your library") || cmd == nil {
 		t.Fatalf("duplicate import state = commands:%d modal:%q status:%q cmd:%v", len(model.Commands), model.Modal, model.Status, cmd)
 	}
 }
@@ -468,10 +603,54 @@ func TestDetailsPanelUsesScrollableViewport(t *testing.T) {
 	model.detailsView.Width, model.detailsView.Height = 54, 6
 	model.syncDetails()
 	before := model.detailsPanel(58, 8)
+	if !strings.Contains(ansi.Strip(before), "More details below") {
+		t.Fatal("details panel should indicate that more content is available below")
+	}
 	model.detailsView.SetYOffset(10)
 	after := model.detailsPanel(58, 8)
 	if before == after {
 		t.Fatal("scrolling the details viewport should change the visible panel content")
+	}
+	if !strings.Contains(ansi.Strip(after), "More details above and below") {
+		t.Fatal("scrolled details panel should indicate content in both directions")
+	}
+}
+
+func TestDeleteConfirmationNamesCommandAndEffect(t *testing.T) {
+	model := New([]storage.Command{{Name: "Remove stale branch", Category: "Git", Command: "git branch -D {{branch:old}}"}}, "")
+	model.pendingDelete, model.Modal = 0, "confirm_delete"
+	view := model.modalView()
+	if !strings.Contains(view, "Remove stale branch") || !strings.Contains(view, "permanently removed") {
+		t.Fatalf("delete confirmation lacks command or consequence: %q", view)
+	}
+}
+
+func TestRunStatusClearsAfterStandardNoticeDuration(t *testing.T) {
+	model := New(nil, "")
+	updated, cmd := model.Update(runMsg{output: "done"})
+	if updated.(Model).Status == "" || cmd == nil {
+		t.Fatal("completed command should show a timed status notification")
+	}
+	updated, cmd = model.Update(runMsg{err: os.ErrInvalid})
+	if updated.(Model).Status == "" || cmd == nil {
+		t.Fatal("failed command should show a timed status notification")
+	}
+}
+
+func TestUsageRecorderPersistsSharedCopyAndRunCount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Command: "git status"}}, "")
+	if err := model.recordUsage(0); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := storage.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.Commands[0].Usage != 1 || saved[0].Usage != 1 {
+		t.Fatalf("in-memory/persisted usage = %d/%d, want 1/1", model.Commands[0].Usage, saved[0].Usage)
 	}
 }
 
@@ -493,7 +672,7 @@ func TestTreeSelectionUsesItsOwnSearchHighlightsAndFitsPanelRows(t *testing.T) {
 }
 
 func TestModalsFitTerminalBounds(t *testing.T) {
-	for _, modal := range []string{"help", "about", "form", "variables", "history", "confirm", "confirm_delete"} {
+	for _, modal := range []string{"help", "about", "form", "variables", "history", "history_preview", "duplicate", "confirm", "confirm_delete"} {
 		model := New(nil, "")
 		model.Width, model.Height, model.Modal = 96, 28, modal
 		model.form = []string{"Linux/Bash", "General", "name", "description", "tag", "command"}
