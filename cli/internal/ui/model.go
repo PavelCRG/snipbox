@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -943,6 +944,14 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.values[m.variables[m.varField]] = m.variableInput.Value()
 			return m, cmd
 		}
+	case "preview_run":
+		switch key.String() {
+		case "esc":
+			m.Modal = ""
+			return m, m.noticeCmd("Command run canceled")
+		case "enter":
+			return m, m.execute(m.pending)
+		}
 	case "confirm":
 		switch key.String() {
 		case "esc", "n":
@@ -1201,9 +1210,30 @@ func (m *Model) confirmOrRun(command string, dangerous bool) tea.Cmd {
 	m.pending = command
 	if dangerous {
 		m.Modal = "confirm"
-		return nil
+	} else {
+		m.Modal = "preview_run"
 	}
-	return m.execute(command)
+	return nil
+}
+
+func activeShellName() string {
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			return "PowerShell 7 (pwsh)"
+		}
+		return "Windows PowerShell"
+	}
+	if shell := os.Getenv("SHELL"); shell != "" {
+		return filepath.Base(shell)
+	}
+	return "POSIX shell (/bin/sh)"
+}
+
+func currentWorkingDirectory() string {
+	if directory, err := os.Getwd(); err == nil {
+		return directory
+	}
+	return "Unavailable"
 }
 
 func (m *Model) execute(command string) tea.Cmd {

@@ -273,6 +273,70 @@ func TestActionsMenuDoesNotOpenDuringSearchAndFitsTerminal(t *testing.T) {
 	}
 }
 
+func TestRunShowsAReviewBeforeSafeCommandExecution(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updated.(Model)
+	if model.Modal != "preview_run" || model.pending != "git status" || model.Commands[0].Usage != 0 {
+		t.Fatalf("run preview state = modal:%q command:%q usage:%d", model.Modal, model.pending, model.Commands[0].Usage)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	if model.Modal != "" || model.Commands[0].Usage != 0 {
+		t.Fatalf("canceling run preview state = modal:%q usage:%d", model.Modal, model.Commands[0].Usage)
+	}
+}
+
+func TestRunPreviewEnterSchedulesExecutionAndRecordsUsage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil || model.Modal != "" || model.Commands[0].Usage != 1 {
+		t.Fatalf("confirmed run state = modal:%q usage:%d cmd:%v", model.Modal, model.Commands[0].Usage, cmd)
+	}
+}
+
+func TestRunPreviewShowsTheCommandShellAndWorkingDirectory(t *testing.T) {
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Width, model.Height, model.pending, model.Modal = 100, 30, "git status", "preview_run"
+	view := ansi.Strip(model.modalView())
+	for _, expected := range []string{"Run Command", "Shell:", "Working directory:", "git status", "Enter runs", "Esc cancels"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("run preview omits %q: %q", expected, view)
+		}
+	}
+}
+
+func TestRunPreviewFitsMinimumTerminalAndKeepsActionsVisible(t *testing.T) {
+	model := New([]storage.Command{{Name: "Status", Category: "Git", Subcategory: "Basics & Staging", Command: "git status"}}, "")
+	model.Width, model.Height, model.pending, model.Modal = 70, 18, "git status --short --branch", "preview_run"
+	view := ansi.Strip(model.View())
+	if !strings.Contains(view, "Enter runs the command") || !strings.Contains(view, "Esc cancels") {
+		t.Fatalf("minimum-size run preview clipped its actions: %q", view)
+	}
+	if lipgloss.Height(view) > model.Height {
+		t.Fatalf("minimum-size run preview height = %d, terminal height = %d", lipgloss.Height(view), model.Height)
+	}
+}
+
+func TestDangerousCommandStillRequiresConfirmation(t *testing.T) {
+	model := New([]storage.Command{{Name: "Delete files", Category: "Linux/Bash", Subcategory: "Files & Search", Command: "rm -rf /tmp/snipbox-demo"}}, "")
+	model.Tab = "Linux/Bash"
+	selectCommandRow(&model, 0)
+	model.beginRun()
+	if model.Modal != "confirm" || model.pending != "rm -rf /tmp/snipbox-demo" {
+		t.Fatalf("dangerous run state = modal:%q command:%q", model.Modal, model.pending)
+	}
+}
+
 func TestActionsMenuRunShortcutStartsVariableFlow(t *testing.T) {
 	model := New([]storage.Command{{Name: "Checkout branch", Category: "Git", Subcategory: "Branches & Merging", Command: "git switch {{branch:main}}"}}, "")
 	for i, row := range model.treeRows() {
@@ -772,7 +836,7 @@ func TestTreeSelectionUsesItsOwnSearchHighlightsAndFitsPanelRows(t *testing.T) {
 }
 
 func TestModalsFitTerminalBounds(t *testing.T) {
-	for _, modal := range []string{"help", "about", "form", "variables", "history", "history_preview", "duplicate", "confirm", "confirm_delete"} {
+	for _, modal := range []string{"help", "about", "form", "variables", "history", "history_preview", "duplicate", "preview_run", "confirm", "confirm_delete"} {
 		model := New(nil, "")
 		model.Width, model.Height, model.Modal = 96, 28, modal
 		model.form = []string{"Linux/Bash", "General", "name", "description", "tag", "command"}

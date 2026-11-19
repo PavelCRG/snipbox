@@ -64,7 +64,7 @@ docker logs -f {{container:app}}
 git commit -m "{{message:Update files}}"
 ```
 
-Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command before running it, so you can review the exact command. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` open an extra confirmation prompt. The warning adds a review step; it does not sandbox a command or limit its permissions.
+Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` require an additional confirmation. The warning adds a review step; it does not sandbox a command or limit its permissions.
 
 ## Keyboard shortcuts
 
@@ -75,7 +75,7 @@ Press **Ctrl+R** and enter values in the prompt. Snipbox renders the command bef
 | `Enter` | Copy the selected command |
 | `M` | Open actions for the selected command |
 | Right-click | Open actions for the command under the pointer |
-| `Ctrl+R` | Fill template values and run |
+| `Ctrl+R` | Review, then run the selected command |
 | `Tab` | Cycle through categories |
 | `Ctrl+A` | Create a command |
 | `Ctrl+E` | Edit the selected command |

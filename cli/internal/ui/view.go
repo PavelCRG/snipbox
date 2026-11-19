@@ -424,6 +424,18 @@ func (m Model) modalView() string {
 		return "Shell History\n\n" + m.historyView.View() + "\nEnter imports  •  Esc closes"
 	case "history_preview":
 		return "Review History Import\n\nCommand:\n" + m.pendingImport + "\n\nEnter saves to your library  •  Esc returns to history"
+	case "preview_run":
+		return strings.Join([]string{
+			"Run Command",
+			"",
+			"Shell: " + activeShellName(),
+			"Working directory: " + currentWorkingDirectory(),
+			"",
+			"Command:",
+			m.pending,
+			"",
+			"Enter runs the command  •  Esc cancels",
+		}, "\n")
 	case "form":
 		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command", "Shells (comma separated)", "Platforms (comma separated)", "Required tools (comma separated)"}
 		var b strings.Builder
@@ -470,7 +482,7 @@ func (m Model) modalView() string {
 		b.WriteString("\nEnter moves forward  •  Ctrl+R runs  •  Esc cancels")
 		return b.String()
 	case "confirm":
-		return "Confirm Execution\n\n[!] Review this potentially destructive command:\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
+		return "Confirm Execution\n\n[!] Review this potentially destructive command.\n" + activeShellName() + " • " + currentWorkingDirectory() + "\n\n" + m.pending + "\n\nPress Y to run  •  N / Esc to cancel"
 	case "confirm_delete":
 		name := "the selected command"
 		if m.pendingDelete >= 0 && m.pendingDelete < len(m.Commands) {
