@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -39,11 +41,14 @@ type templateInfo struct {
 }
 
 type runMsg struct {
-	output      string
-	err         error
-	usageErr    string
-	exitCode    int
-	hasExitCode bool
+	output       string
+	err          error
+	usageErr     string
+	exitCode     int
+	hasExitCode  bool
+	truncated    bool
+	commandIndex int
+	hasCommand   bool
 }
 
 type clearStatusMsg string
@@ -92,6 +97,7 @@ var keys = keyMap{
 
 type cappedBuffer struct {
 	bytes.Buffer
+	mu        sync.Mutex
 	truncated bool
 }
 
@@ -108,12 +114,15 @@ type Model struct {
 	Width    int
 	Height   int
 
-	searchInput   textinput.Model
-	formInput     textinput.Model
-	variableInput textinput.Model
-	detailsView   viewport.Model
-	historyView   viewport.Model
-	helpView      help.Model
+	searchInput     textinput.Model
+	formInput       textinput.Model
+	variableInput   textinput.Model
+	detailsView     viewport.Model
+	historyView     viewport.Model
+	runView         viewport.Model
+	runResultStatus string
+	runOutput       string
+	helpView        help.Model
 
 	form                []string
 	formErrors          map[int]string
@@ -164,7 +173,7 @@ func New(commands []storage.Command, query string) Model {
 		pendingDelete: -1, duplicateIndex: -1,
 		categoryExpanded: expanded, subcategoryExpanded: subcategoryExpanded,
 		searchInput: search, formInput: textinput.New(), variableInput: textinput.New(),
-		detailsView: viewport.New(1, 1), historyView: viewport.New(1, 1), helpView: help.New(),
+		detailsView: viewport.New(1, 1), historyView: viewport.New(1, 1), runView: viewport.New(1, 1), helpView: help.New(),
 	}
 	if query == "" {
 		for index, row := range model.treeRows() {
@@ -289,27 +298,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncDetails()
 		m.syncHistory()
 	case runMsg:
-		if v.err != nil {
-			message := "Command failed: " + v.err.Error() + " " + truncate(strings.TrimSpace(v.output), 100)
-			if v.hasExitCode {
-				message += fmt.Sprintf(" (Exit code: %d)", v.exitCode)
+		if v.hasCommand && v.hasExitCode {
+			if err := m.recordUsage(v.commandIndex); err != nil {
+				v.usageErr = err.Error()
 			}
-			if v.usageErr != "" {
-				message += " · Usage count was not saved"
-			}
-			return m, m.failureCmd(strings.TrimSpace(message))
 		}
-		status := string(rune(0x2713)) + " Command completed"
-		if v.hasExitCode {
-			status += fmt.Sprintf(" (Exit code: %d)", v.exitCode)
+		m.Modal = "run_result"
+		m.runResultStatus = runResultStatus(v)
+		output := strings.TrimSpace(v.output)
+		if output == "" {
+			output = "No output was produced."
 		}
-		if output := strings.TrimSpace(v.output); output != "" {
-			status += ": " + truncate(output, 100)
+		if v.truncated {
+			output += "\n\nOutput truncated after 64 KiB."
 		}
+		m.runOutput = output
+		m.layout()
+		m.runView.GotoTop()
 		if v.usageErr != "" {
-			status += " · Usage count was not saved"
+			m.runResultStatus += " · Usage count was not saved"
 		}
-		return m, m.noticeCmd(status)
+		return m, m.noticeCmd(m.runResultStatus)
 	case clearStatusMsg:
 		if string(v) == m.Status {
 			m.Status = ""
@@ -809,6 +818,11 @@ func (m *Model) layout() {
 	bodyHeight := max(3, m.Height-4-helpHeight)
 	m.detailsView.Width, m.detailsView.Height = rightWidth, max(1, bodyHeight-3)
 	m.historyView.Width, m.historyView.Height = formWidth, max(1, m.Height-12)
+	m.runView.Width = max(1, min(54, m.Width-16))
+	m.runView.Height = max(1, min(8, m.Height-14))
+	if m.Modal == "run_result" {
+		m.runView.SetContent(wrapLines(m.runOutput, m.runView.Width))
+	}
 }
 func (m *Model) syncDetails() {
 	_, _, _, width := panelWidths(m.Width)
@@ -978,6 +992,13 @@ func (m Model) updateModal(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pendingDelete = -1
 		case "y", "enter":
 			return m, m.deletePending()
+		}
+	case "run_result":
+		switch key.String() {
+		case "esc", "enter":
+			m.Modal = ""
+		case "up", "k", "down", "j", "pgup", "pgdown":
+			m.runView, _ = m.runView.Update(key)
 		}
 	}
 	return m, nil
@@ -1248,19 +1269,40 @@ func (m *Model) execute(command string) tea.Cmd {
 		m.Modal = ""
 		return m.failureCmd("Could not use working directory: " + err.Error())
 	}
-	usageErr := ""
-	if index, _, ok := m.selectedCommand(); ok {
-		if err := m.recordUsage(index); err != nil {
-			usageErr = err.Error()
-		}
-	}
+	index, _, hasCommand := m.selectedCommand()
 	m.Modal = ""
 	process := newShellCommand(command)
 	process.Dir = workingDirectory
+	output := captureProcessOutput(process, os.Stdout, os.Stderr)
 	return tea.ExecProcess(process, func(err error) tea.Msg {
 		exitCode, hasExitCode := processExitCode(err)
-		return runMsg{err: err, usageErr: usageErr, exitCode: exitCode, hasExitCode: hasExitCode}
+		return runMsg{output: cleanOutput(output.String()), err: err, exitCode: exitCode, hasExitCode: hasExitCode, truncated: output.wasTruncated(), commandIndex: index, hasCommand: hasCommand}
 	})
+}
+
+func captureProcessOutput(process *exec.Cmd, stdout, stderr io.Writer) *cappedBuffer {
+	output := &cappedBuffer{}
+	process.Stdout = io.MultiWriter(stdout, output)
+	process.Stderr = io.MultiWriter(stderr, output)
+	return output
+}
+
+func runResultStatus(result runMsg) string {
+	if result.err == nil {
+		if result.hasExitCode {
+			return fmt.Sprintf("[OK] Command completed (Exit code: %d)", result.exitCode)
+		}
+		return "[OK] Command completed"
+	}
+	if result.hasExitCode {
+		return fmt.Sprintf("Command failed (Exit code: %d)", result.exitCode)
+	}
+	var commandError *exec.Error
+	var pathError *os.PathError
+	if errors.As(result.err, &commandError) || errors.As(result.err, &pathError) {
+		return "Could not start command: " + result.err.Error()
+	}
+	return "Command runner failed: " + result.err.Error()
 }
 
 func processExitCode(err error) (int, bool) {
@@ -1321,6 +1363,8 @@ func newShellCommand(command string) *exec.Cmd {
 }
 
 func (b *cappedBuffer) Write(value []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	const limit = 64 * 1024
 	remaining := limit - b.Len()
 	if remaining > 0 {
@@ -1332,13 +1376,27 @@ func (b *cappedBuffer) Write(value []byte) (int, error) {
 	return len(value), nil
 }
 
+func (b *cappedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
+}
+
+func (b *cappedBuffer) wasTruncated() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.truncated
+}
+
 func cleanOutput(value string) string {
 	value = terminalEscape.ReplaceAllString(value, "")
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "")
 	value = strings.Map(func(char rune) rune {
 		if (char < 32 && char != '\n' && char != '\t') || char == 127 {
 			return -1
 		}
 		return char
 	}, value)
-	return strings.Join(strings.Fields(value), " ")
+	return strings.TrimSpace(value)
 }

@@ -441,6 +441,19 @@ func (m Model) modalView() string {
 			"",
 			"Enter runs the command  •  Esc cancels",
 		}, "\n")
+	case "run_result":
+		status := Danger.Render(m.runResultStatus)
+		if strings.HasPrefix(m.runResultStatus, "[OK]") {
+			status = Success.Render(m.runResultStatus)
+		}
+		return strings.Join([]string{
+			"Command Output",
+			status,
+			"",
+			m.runView.View(),
+			"",
+			"Up/Down or PgUp/PgDn scroll  •  Enter/Esc close",
+		}, "\n")
 	case "form":
 		labels := []string{"Category", "Subcategory", "Name", "Description", "Tags (comma separated)", "Command", "Shells (comma separated)", "Platforms (comma separated)", "Required tools (comma separated)", "Working directory (optional)"}
 		var b strings.Builder

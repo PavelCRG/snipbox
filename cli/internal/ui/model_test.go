@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -290,7 +292,7 @@ func TestRunShowsAReviewBeforeSafeCommandExecution(t *testing.T) {
 	}
 }
 
-func TestRunPreviewEnterSchedulesExecutionAndRecordsUsage(t *testing.T) {
+func TestRunPreviewEnterSchedulesExecutionAndRecordsUsageAfterCompletion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
@@ -299,8 +301,12 @@ func TestRunPreviewEnterSchedulesExecutionAndRecordsUsage(t *testing.T) {
 	model = updated.(Model)
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if cmd == nil || model.Modal != "" || model.Commands[0].Usage != 1 {
+	if cmd == nil || model.Modal != "" || model.Commands[0].Usage != 0 {
 		t.Fatalf("confirmed run state = modal:%q usage:%d cmd:%v", model.Modal, model.Commands[0].Usage, cmd)
+	}
+	updated, _ = model.Update(runMsg{commandIndex: 0, hasCommand: true, hasExitCode: true})
+	if got := updated.(Model).Commands[0].Usage; got != 1 {
+		t.Fatalf("completed run usage = %d, want 1", got)
 	}
 }
 
@@ -869,6 +875,65 @@ func TestRunStatusReportsProcessExitCode(t *testing.T) {
 	}
 }
 
+func TestRunResultKeepsMultilineOutputAndExitCodeVisible(t *testing.T) {
+	model := New(nil, "")
+	model.Width, model.Height = 80, 24
+	updated, _ := model.Update(runMsg{output: "first line\nsecond line", err: os.ErrInvalid, exitCode: 7, hasExitCode: true})
+	result := updated.(Model)
+	if result.Modal != "run_result" {
+		t.Fatalf("run result modal = %q, want run_result", result.Modal)
+	}
+	view := ansi.Strip(result.View())
+	for _, want := range []string{"Command Output", "Exit code: 7", "first line", "second line"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("run result view is missing %q: %q", want, view)
+		}
+	}
+	updated, _ = result.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
+	result = updated.(Model)
+	if !strings.Contains(ansi.Strip(result.View()), "second line") {
+		t.Fatal("resizing the terminal should preserve the captured command output")
+	}
+	updated, _ = result.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if got := updated.(Model); got.Modal != "" {
+		t.Fatal("Esc should close the command output view")
+	}
+}
+
+func TestRunResultExplainsShellStartFailures(t *testing.T) {
+	model := New(nil, "")
+	startErr := exec.Command("snipbox-shell-that-does-not-exist").Run()
+	updated, _ := model.Update(runMsg{err: startErr})
+	result := updated.(Model)
+	if !strings.Contains(strings.ToLower(result.Status), "could not start") {
+		t.Fatalf("shell start failure status = %q, want a clear start error", result.Status)
+	}
+}
+
+func TestRunUsageIsSavedOnlyAfterTheShellReturnsAnExitCode(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	commands := []storage.Command{{Name: "Status", Category: "Git", Command: "git status"}}
+	model := New(commands, "")
+	updated, _ := model.Update(runMsg{commandIndex: 0, hasCommand: true, err: os.ErrInvalid})
+	if got := updated.(Model).Commands[0].Usage; got != 0 {
+		t.Fatalf("usage after a shell start failure = %d, want 0", got)
+	}
+	updated, _ = model.Update(runMsg{commandIndex: 0, hasCommand: true, hasExitCode: true, exitCode: 7, err: &exec.ExitError{}})
+	if got := updated.(Model).Commands[0].Usage; got != 1 {
+		t.Fatalf("usage after completed shell process = %d, want 1", got)
+	}
+	saved, err := storage.Load()
+	var usage uint64
+	if len(saved) > 0 {
+		usage = saved[0].Usage
+	}
+	if err != nil || usage != 1 {
+		t.Fatalf("persisted first command usage/err = %d/%v, want usage 1", usage, err)
+	}
+}
+
 func TestProcessExitCodeReadsSuccessfulAndFailedShellResults(t *testing.T) {
 	if code, ok := processExitCode(nil); !ok || code != 0 {
 		t.Fatalf("successful process exit = %d/%t, want 0/true", code, ok)
@@ -876,6 +941,18 @@ func TestProcessExitCodeReadsSuccessfulAndFailedShellResults(t *testing.T) {
 	err := newShellCommand("exit 7").Run()
 	if code, ok := processExitCode(err); !ok || code != 7 {
 		t.Fatalf("failed process exit = %d/%t, want 7/true (error: %v)", code, ok, err)
+	}
+}
+
+func TestShellCommandOutputIsCapturedWithoutLosingLiveOutput(t *testing.T) {
+	process := newShellCommand("echo snipbox-output")
+	var live bytes.Buffer
+	captured := captureProcessOutput(process, &live, &live)
+	if err := process.Run(); err != nil {
+		t.Fatalf("shell command failed: %v", err)
+	}
+	if !strings.Contains(live.String(), "snipbox-output") || cleanOutput(captured.String()) != "snipbox-output" {
+		t.Fatalf("live/captured output = %q/%q", live.String(), cleanOutput(captured.String()))
 	}
 }
 
@@ -1085,8 +1162,8 @@ func TestSmallFormKeepsFocusedRuntimeFieldVisible(t *testing.T) {
 }
 
 func TestCleanOutputRemovesTerminalControlSequences(t *testing.T) {
-	if got := cleanOutput("\x1b[31mComplete\x1b[0m\r\n"); got != "Complete" {
-		t.Fatalf("cleanOutput() = %q, want Complete", got)
+	if got := cleanOutput("\x1b[31mComplete\x1b[0m\r\nnext\tvalue"); got != "Complete\nnext\tvalue" {
+		t.Fatalf("cleanOutput() = %q, want clean multiline output", got)
 	}
 }
 
