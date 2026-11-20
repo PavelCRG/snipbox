@@ -65,7 +65,7 @@ docker logs -f {{container:app}}
 git commit -m "{{message:Update files}}"
 ```
 
-Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. A relative working directory is resolved from the folder where Snipbox was started. When the command exits, Snipbox reports its exit code. Patterns such as `rm -rf`, `reset --hard`, `drop`, `format`, and `mkfs` require an additional confirmation. The warning adds a review step; it does not sandbox a command or limit its permissions.
+Press **Ctrl+R** and enter values in the prompt. Snipbox then shows the exact command, shell, and working directory; press **Enter** to run it or **Esc** to cancel. A relative working directory is resolved from the folder where Snipbox was started. When the command exits, Snipbox reports its exit code. The engine checks command context for destructive operations such as recursive forced removal, hard Git resets, filesystem formatting, SQL `DROP`, PowerShell removal, and container or cluster deletion. It ignores quoted examples and checks the rendered command after template values are inserted. This heuristic cannot understand every shell or script; confirmation adds a review step, not a sandbox or permission limit.
 
 ## Keyboard shortcuts
 
